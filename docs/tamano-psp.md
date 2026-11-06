@@ -107,6 +107,47 @@ Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (`docs/diseno-psp.m
   (marcas de `stat` de los `.elf`: 23:53:13 y 23:55:24). `cc1plus` sólo sobre `ikaruga.cpp`
   a -O2 con `-mno-explicit-relocs`: 311 s (`build/psp/evidencia/sonda-gas-no-explicit-relocs.log`).
 
+## 5. Variante `mix`: runtime y stubs a `-O2`, generado a `-Os` (fila 9a)
+
+Desde la fila 9a el EBOOT por defecto (`build/psp/ikaruga/EBOOT.PBP`, `ikaruga.elf`) es `mix`
+(`OPT_RT=-O2` para runtime, stubs y `main.cpp`; `OPT_GEN=-Os` para `gen/*.cpp`); la variante todo
+`-Os` queda como `ikaruga-Os.elf` / `EBOOT-Os.PBP` y la todo `-O2` como `ikaruga-O2.elf`
+(`--variantes=O2`). Las tablas de §1–§3 son de la fila 4 (`gen/` sin idle-skip).
+
+Build (desde cero, las dos variantes):
+
+```sh
+scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen --limpio
+```
+
+`gen/` con idle-skip (sha256 de la concatenación ordenada
+`924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da`), runtime con
+`patches/dream-recomp/0001…0004`. Log: `build/psp/evidencia/fila9a-build-limpio.log` (en el log, las
+35 compilaciones a `-O2` son las 26 del runtime y las 9 de stubs + `main.cpp` de `mix`; las 10 de
+`gen/` son `-Os` en las dos variantes, CONFIRMADO con `grep`).
+
+`psp-size` (mismo comando de §1 con `<mix|Os>`):
+
+| Variante | text | data | bss | dec | dec en MB | + guest 28,1 MB |
+|---|---:|---:|---:|---:|---:|---:|
+| `Os` (todo `-Os`, `ikaruga-Os.elf`) | 13 734 313 | 2 556 | 589 748 | 14 326 617 | 13,66 | 41,76 MB |
+| `mix` (`ikaruga.elf`, por defecto) | 13 825 013 | 2 556 | 589 748 | 14 417 317 | **13,75** | **41,85 MB** |
+| diferencia | +90 700 | 0 | 0 | +90 700 (+88,6 KB) | +0,09 | |
+
+Por grupo (`python3 scripts/psp/tamano-por-grupo.py build/psp/ikaruga/<mix|Os>/ikaruga.map`,
+salida en `build/psp/evidencia/fila9a-tamano-por-grupo-<mix|Os>.txt`):
+
+| Grupo | `Os` (B) | `mix` (B) | diferencia |
+|---|---:|---:|---:|
+| Runtime dream-recomp | 403 115 | 489 185 | +86 070 |
+| Stubs + `main.cpp` | 12 449 | 15 671 | +3 222 |
+| Código generado | 12 028 564 | 12 028 704 | +140 |
+| Total del script | 13 754 789 | 13 845 341 | +90 552 |
+
+Con el resto estimado de §3 (2–4 MB) `mix` queda en ≈44–46 MB: **entra** en ≈52 MB con ≈6–8 MB de
+margen, igual que `-Os`. Los +140 B del generado con las mismas banderas no los expliqué
+(probablemente plantillas/inline de cabeceras del runtime emitidos en otra unidad).
+
 ## Qué NO verifiqué y dónde está mi punto ciego
 
 - **El elf no se ejecutó** (ni en PPSSPP ni en hardware): los stubs no leen el `1ST_READ.BIN` ni
