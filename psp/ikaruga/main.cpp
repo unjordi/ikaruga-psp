@@ -194,7 +194,9 @@ void log_memory(const char* tag) {
     std::size_t lo = 0, hi = 64u << 20;
     while (hi - lo > 16 * 1024) {
         const std::size_t mid = lo + (hi - lo) / 2;
-        if (void* p = std::malloc(mid)) {
+        // Through a volatile so the compiler cannot drop the malloc/free pair.
+        void* volatile p = std::malloc(mid);
+        if (p) {
             std::free(p);
             lo = mid;
         } else {
