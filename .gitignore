@@ -1,0 +1,18 @@
+# Game data and anything derived from it: never committed (bring your own disc)
+*.chd
+*.gdi
+*.cdi
+*.iso
+*.bin
+*.raw
+*.track*
+1ST_READ.BIN
+IP.BIN
+src/game/
+include/game/
+extracted/
+# Build output
+build/
+*.elf
+*.prx
+*.PBP
