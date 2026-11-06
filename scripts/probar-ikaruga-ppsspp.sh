@@ -8,6 +8,7 @@
 # temporary memory stick, which is created next to <salida.log> and deleted on exit.
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
+#      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
 # for the screenshot.
 set -euo pipefail
@@ -41,6 +42,7 @@ MS="$WORK/config/ppsspp"
 GAME="$MS/PSP/GAME/IKARUGA"
 mkdir -p "$GAME"
 cp "$EBOOT" "$GAME/EBOOT.PBP"
+[[ "${PROBAR_SIN_IDLE:-0}" == 1 ]] && : > "$GAME/NO_IDLE_SKIP"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"

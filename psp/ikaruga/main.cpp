@@ -42,6 +42,15 @@ namespace {
 
 constexpr std::uint32_t kEntry = 0x8C010000u;        // games/ikaruga/ikaruga.toml: entry
 constexpr std::uint32_t kLoadAddress = 0x8C010000u;  // games/ikaruga/ikaruga.toml: load_address
+constexpr std::uint32_t kLinkAddress = 0x0C010000u;  // games/ikaruga/ikaruga.toml: link_address
+// games/ikaruga/ikaruga.toml [idle]: wait-loop head -> kind (docs/idle-skip.md). A file named
+// kNoIdleSkip in kDir leaves the table empty, as --no-idle-skip does on PC.
+struct IdleEntry {
+    std::uint32_t addr;
+    const char* kind;
+};
+constexpr IdleEntry kIdle[] = {{0x0C0370BAu, "katana_wait_vblank"}};
+constexpr const char* kNoIdleSkip = "NO_IDLE_SKIP";
 constexpr const char* kDir = "ms0:/PSP/GAME/IKARUGA/";
 constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
 constexpr double kGuestHz = 200e6;                    // SH-4 clock the guest cycles count
@@ -107,6 +116,21 @@ int main() {
     const auto region = dream::hle::Region::Japan;
     bios.set_locale(dream::hle::Language::English, region, dream::hle::broadcast_for(region));
     sys.install();
+    std::vector<std::uint8_t> flag;
+    const bool idle_skip = !host::file_read(path_in_dir(kNoIdleSkip).c_str(), flag);
+    if (idle_skip) {
+        for (const IdleEntry& e : kIdle) {
+            dream::System::IdleKind kind;
+            if (!dream::System::idle_kind_from_name(e.kind, kind)) {
+                log_line("error: [idle] 0x%08" PRIx32 ": unknown kind '%s'", e.addr, e.kind);
+                return quit(2);
+            }
+            const std::uint32_t head =
+                (e.addr & 0x1FFFFFFFu) - (kLoadAddress & 0x1FFFFFFFu) + kLinkAddress;
+            sys.idle_loops[head] = kind;
+        }
+    }
+    log_line("idle-skip: %s (%zu loops)", idle_skip ? "on" : "off", sys.idle_loops.size());
     bios.setup_boot(kEntry);
     std::memcpy(sys.memory.ram() + offset, program.data(), program.size());
 
@@ -158,10 +182,12 @@ int main() {
     auto report = [&](const char* what) {
         const double host_s = static_cast<double>(host::clock_us() - t0) / 1e6;
         const double guest_s = static_cast<double>(sys.ctx.cycles) / kGuestHz;
+        // pc stays the last field: scripts/test-psp-arranque.sh reads it with awk $NF.
         log_line("%s frames %" PRIu64 " cycles %" PRIu64 " guest_s %.3f host_s %.3f speed %.4f "
-            "pc 0x%08" PRIx32,
+            "idle_skips %" PRIu64 " idle_cycles %" PRIu64 " pc 0x%08" PRIx32,
             what, sys.spg.frames(), sys.ctx.cycles, guest_s, host_s,
-            host_s > 0 ? guest_s / host_s : 0.0, sys.ctx.pc);
+            host_s > 0 ? guest_s / host_s : 0.0, sys.idle_skips, sys.idle_skipped_cycles,
+            sys.ctx.pc);
     };
     sys.spg.on_vblank_out = [&] {
         host::input_poll(pad_ptr->state);
