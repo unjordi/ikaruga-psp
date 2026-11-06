@@ -90,7 +90,9 @@ echo "$alive" > "$WORK/alive"
 SH
 export APP WORK LOG RAW GAME SEGUNDOS CAPTURA
 set +e
-timeout $((SEGUNDOS + 60)) xvfb-run -a -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
+# -d: Xvfb picks a free display itself; -a can give two parallel runs the same one, and the
+# first to end then kills the X server under the other.
+timeout $((SEGUNDOS + 60)) xvfb-run -d -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
 rc=$?
 set -e
 

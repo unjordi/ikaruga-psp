@@ -61,7 +61,7 @@ wait "$pid" 2>/dev/null || true
 SH
 export APP WORK LOG RAW EBOOT SEGUNDOS
 set +e
-timeout $((SEGUNDOS + 60)) xvfb-run -a -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
+timeout $((SEGUNDOS + 60)) xvfb-run -d -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
 rc=$?
 set -e
 
