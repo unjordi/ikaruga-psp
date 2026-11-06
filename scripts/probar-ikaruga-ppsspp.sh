@@ -99,7 +99,7 @@ grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
 cp "$GAME/ikaruga.log" "$SALIDA"
-for raw in "$GAME"/captura-*.raw; do
+for raw in "$GAME"/captura-*.raw "$GAME"/ta-*.bin; do
   [[ -f "$raw" ]] && cp "$raw" "$(dirname "$SALIDA")/"
 done
 echo "PPSSPP still running at the end: $(cat "$WORK/alive" 2>/dev/null || echo ?)" >&2

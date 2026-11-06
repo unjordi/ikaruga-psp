@@ -75,12 +75,16 @@ void log_line(const char* fmt, ...) {
 //   dibujar=0       clear and swap every frame but draw no geometry
 //   trazar=1        log every strip of the captured render
 //   profundidad=0   draw with the depth test off
+//   volcar_ta=1     also write the captured render's parameter stream to ta-N.bin
+//   rtc_semilla=N   console clock fixed at N seconds since 1970 (PC's --rtc-seed)
 struct Config {
     std::uint64_t capture_at = 0, max_frames = 0;
     std::string presses;
     bool draw = true;
     bool trace = false;
     bool depth = true;
+    std::uint64_t rtc_seed = 0;
+    bool dump_ta = false;
 };
 
 Config read_config() {
@@ -108,6 +112,10 @@ Config read_config() {
             cfg.max_frames = std::strtoull(value.c_str(), nullptr, 0);
         else if (key == "pulsar")
             cfg.presses = value;
+        else if (key == "volcar_ta")
+            cfg.dump_ta = value != "0";
+        else if (key == "rtc_semilla")
+            cfg.rtc_seed = std::strtoull(value.c_str(), nullptr, 0);
         else if (key == "profundidad")
             cfg.depth = value != "0";
         else if (key == "trazar")
@@ -142,8 +150,9 @@ int main() {
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
     const std::size_t presses = host::input_script(cfg.presses);
-    log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d",
-        cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0);
+    log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
+        "rtc_semilla %" PRIu64, cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0,
+        cfg.rtc_seed);
 
     const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
@@ -215,9 +224,18 @@ int main() {
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    dream::aica::Rtc rtc(static_cast<std::uint32_t>(std::time(nullptr)) +
+    // The console clock: fixed by rtc_semilla (PC's --rtc-seed) so a run repeats, and ticked once
+    // per guest second as on PC.
+    dream::aica::Rtc rtc((cfg.rtc_seed ? static_cast<std::uint32_t>(cfg.rtc_seed)
+                                       : static_cast<std::uint32_t>(std::time(nullptr))) +
         dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
+    int rtc_tick = -1;
+    rtc_tick = sys.sched.add("rtc", [&](std::uint64_t, std::uint64_t) {
+        rtc.tick();
+        sys.sched.request(rtc_tick, 200'000'000ull);
+    });
+    sys.sched.request(rtc_tick, 200'000'000ull);
 
     const std::uint64_t t0 = host::clock_us();
     auto report = [&](const char* what) {
@@ -258,6 +276,13 @@ int main() {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::PunchThrough)].size(),
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended);
+            if (cfg.dump_ta) {
+                char ta[64];
+                std::snprintf(ta, sizeof ta, "ta-%" PRIu64 ".bin", cfg.capture_at);
+                host::file_write(path_in_dir(ta).c_str(),
+                    reinterpret_cast<const std::uint8_t*>(stream.data()),
+                    static_cast<std::uint32_t>(stream.size() * 4));
+            }
             std::vector<std::uint8_t> rgb;
             unsigned w = 0, h = 0;
             char name[64];
