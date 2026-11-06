@@ -8,6 +8,10 @@
 # temporary memory stick, which is created next to <salida.log> and deleted on exit.
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
+#      PROBAR_CARPETA=NAME installs under ms0:/PSP/GAME/NAME instead of IKARUGA.
+#      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
+#      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
+#      VMU.BIN left after it (removed if there is none).
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
 # for the screenshot.
 set -euo pipefail
@@ -38,9 +42,11 @@ trap 'rm -rf "$WORK"' EXIT
 
 # PPSSPP on Linux uses $XDG_CONFIG_HOME/ppsspp as the memory stick root (PSP/SYSTEM holds its ini).
 MS="$WORK/config/ppsspp"
-GAME="$MS/PSP/GAME/IKARUGA"
+GAME="$MS/PSP/GAME/${PROBAR_CARPETA:-IKARUGA}"
 mkdir -p "$GAME"
 cp "$EBOOT" "$GAME/EBOOT.PBP"
+[[ -n "${PROBAR_CFG:-}" ]] && cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
+[[ -n "${PROBAR_VMU_IN:-}" ]] && cp "$PROBAR_VMU_IN" "$GAME/VMU.BIN"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"
@@ -89,5 +95,9 @@ grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
 cp "$GAME/ikaruga.log" "$SALIDA"
+if [[ -n "${PROBAR_VMU_OUT:-}" ]]; then
+  rm -f "$PROBAR_VMU_OUT"
+  [[ -f "$GAME/VMU.BIN" ]] && cp "$GAME/VMU.BIN" "$PROBAR_VMU_OUT"
+fi
 echo "PPSSPP still running at the end: $(cat "$WORK/alive" 2>/dev/null || echo ?)" >&2
 echo "$SALIDA"

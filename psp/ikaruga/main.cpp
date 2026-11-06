@@ -42,11 +42,25 @@ namespace {
 
 constexpr std::uint32_t kEntry = 0x8C010000u;        // games/ikaruga/ikaruga.toml: entry
 constexpr std::uint32_t kLoadAddress = 0x8C010000u;  // games/ikaruga/ikaruga.toml: load_address
-constexpr const char* kDir = "ms0:/PSP/GAME/IKARUGA/";
+constexpr const char* kDefaultDir = "ms0:/PSP/GAME/IKARUGA/";
 constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
 constexpr double kGuestHz = 200e6;                    // SH-4 clock the guest cycles count
 
-std::string path_in_dir(const char* name) { return std::string(kDir) + name; }
+std::string g_dir = kDefaultDir;
+
+// The folder the EBOOT was started from (argv[0] is its full path, e.g.
+// ms0:/PSP/GAME/OTHER/EBOOT.PBP or ef0:/...), with its trailing slash.
+std::string game_dir(int argc, char** argv) {
+    if (argc < 1 || !argv || !argv[0])
+        return kDefaultDir;
+    const std::string self = argv[0];
+    const std::size_t slash = self.find_last_of('/');
+    if (slash == std::string::npos || self.find(':') == std::string::npos)
+        return kDefaultDir;
+    return self.substr(0, slash + 1);
+}
+
+std::string path_in_dir(const char* name) { return g_dir + name; }
 
 void log_line(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void log_line(const char* fmt, ...) {
@@ -71,8 +85,9 @@ int quit(int rc) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     using namespace ikaruga;
+    g_dir = game_dir(argc, argv);
     const std::string log_path = path_in_dir("ikaruga.log");
     host::file_write(log_path.c_str(), nullptr, 0);
     host::process_init();
