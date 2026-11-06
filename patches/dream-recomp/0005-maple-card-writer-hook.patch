@@ -1,0 +1,47 @@
+--- a/runtime/include/dream/runtime/maple/maple.h
++++ b/runtime/include/dream/runtime/maple/maple.h
+@@ -6,6 +6,7 @@
+ 
+ #include <array>
+ #include <cstdint>
++#include <functional>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -144,6 +145,11 @@
+     bool save() const;
+     // Writes to `path` and adopts it. For creating a card that did not exist yet.
+     bool save_as(const std::string& path);
++    // When set, save() hands the whole image to this instead of writing a file itself, so a host
++    // can store it its own way (temporary file and rename on the PSP).
++    std::function<bool(const std::vector<std::uint8_t>&)> writer;
++    // Replaces the image with `data`; refused (false, image untouched) unless it is kImageSize.
++    bool set_image(const std::vector<std::uint8_t>& data);
+ 
+     // Makes this a blank, formatted card: the system block's geometry, a FAT with the whole user
+     // area free and the directory chain allocated, and an empty directory. The layout is in
+--- a/runtime/src/maple/maple.cpp
++++ b/runtime/src/maple/maple.cpp
+@@ -55,6 +55,8 @@
+ }
+ 
+ bool MemoryCard::save() const {
++    if (writer)
++        return writer(flash_);
+     if (path_.empty())
+         return false;
+     std::ofstream out(path_, std::ios::binary);
+@@ -65,6 +67,13 @@
+     return static_cast<bool>(out);
+ }
+ 
++bool MemoryCard::set_image(const std::vector<std::uint8_t>& data) {
++    if (data.size() != kImageSize)
++        return false;
++    flash_ = data;
++    return true;
++}
++
+ bool MemoryCard::save_as(const std::string& path) {
+     path_ = path;
+     return save();

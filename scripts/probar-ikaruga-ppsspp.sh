@@ -8,6 +8,9 @@
 # temporary memory stick, which is created next to <salida.log> and deleted on exit.
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
+#      PROBAR_SACAR="a b" copies those files from the EBOOT's folder next to <salida.log>.
+#      PROBAR_DISCO=file uses that DISCO.ISO (tools/volcar-area-hd's dump of the real disc)
+#      instead of building one from <dir-juego-extraido>/fs.
 #      PROBAR_CARPETA=NAME installs under ms0:/PSP/GAME/NAME instead of IKARUGA.
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
@@ -50,7 +53,11 @@ cp "$EBOOT" "$GAME/EBOOT.PBP"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"
-  "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
+  if [[ -n "${PROBAR_DISCO:-}" ]]; then
+    ln "$(realpath "$PROBAR_DISCO")" "$GAME/DISCO.ISO" 2>/dev/null || cp "$PROBAR_DISCO" "$GAME/DISCO.ISO"
+  else
+    "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
+  fi
 fi
 
 # Private PPSSPP config: the user's settings are neither used nor touched. OpenGL because Xvfb has no DRI3 for Vulkan. Speed unlimited is not set: the
@@ -95,6 +102,9 @@ grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
 cp "$GAME/ikaruga.log" "$SALIDA"
+for f in ${PROBAR_SACAR:-}; do
+  [[ -f "$GAME/$f" ]] && cp "$GAME/$f" "$(dirname "$SALIDA")/$f"
+done
 if [[ -n "${PROBAR_VMU_OUT:-}" ]]; then
   rm -f "$PROBAR_VMU_OUT"
   [[ -f "$GAME/VMU.BIN" ]] && cp "$GAME/VMU.BIN" "$PROBAR_VMU_OUT"

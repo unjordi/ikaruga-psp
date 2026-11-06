@@ -78,11 +78,11 @@ void log_line(const char* fmt, ...) {
         static_cast<std::uint32_t>(n));
 }
 
-// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' comments. Only rtc_seed is read: the
-// console clock in seconds since 1970, as the PC launcher's --rtc-seed. Default 1.
-std::uint32_t rtc_seed_from_cfg() {
+// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' comments. Returns the numeric value of
+// `wanted`, or `fallback` without the file or the key.
+std::uint32_t cfg_number(const char* wanted, std::uint32_t fallback) {
     std::vector<std::uint8_t> raw;
-    std::uint32_t seed = 1;
+    std::uint32_t seed = fallback;
     if (!ikaruga::host::file_read(path_in_dir("ikaruga.cfg").c_str(), raw))
         return seed;
     std::string text(raw.begin(), raw.end());
@@ -100,7 +100,7 @@ std::uint32_t rtc_seed_from_cfg() {
         std::string key = line.substr(0, eq);
         key.erase(0, key.find_first_not_of(" \t"));
         key.erase(key.find_last_not_of(" \t\r") + 1);
-        if (key == "rtc_seed")
+        if (key == wanted)
             seed = static_cast<std::uint32_t>(std::strtoul(line.c_str() + eq + 1, nullptr, 0));
     }
     return seed;
@@ -118,24 +118,50 @@ void start_rtc_tick(dream::System& sys, dream::aica::Rtc& rtc) {
 
 // Oracle against PC: the rolling hash of guest stores that the PC launcher's --write-hash prints,
 // sampled the same way (first scanline of each new frame, from a scheduler event with the period
-// of a scanline), logged every kLogEvery frames as "hash <frame> <cycles> <hash> <writes> rtc <s>".
-void start_write_hash(dream::System& sys, const dream::aica::Rtc& rtc) {
+// of a scanline), logged every `every` frames as "hash <frame> <cycles> <hash> <writes> rtc <s>".
+void start_write_hash(dream::System& sys, const dream::aica::Rtc& rtc, std::uint64_t every) {
     sys.memory.hash_writes = true;
     auto id = std::make_shared<int>(-1);
     auto hashed_frame = std::make_shared<std::uint64_t>(~0ull);
     const std::uint64_t period = sys.spg.line_cycles();
-    *id = sys.sched.add("write-hash", [&sys, &rtc, id, hashed_frame, period](std::uint64_t now,
+    *id = sys.sched.add("write-hash", [&sys, &rtc, id, hashed_frame, period, every](std::uint64_t now,
                                                                        std::uint64_t) {
         const std::uint64_t f = sys.spg.frames();
         if (f != *hashed_frame) {
             *hashed_frame = f;
-            if (f % kLogEvery == 0)
+            if (f % every == 0)
                 log_line("hash %" PRIu64 " %" PRIu64 " %016" PRIx64 " %" PRIu64 " rtc %" PRIu32, f,
                     now, sys.memory.write_hash, sys.memory.writes_hashed, rtc.seconds());
         }
         sys.sched.request(*id, period);
     });
     sys.sched.request(*id, period);
+}
+
+// Debug aid for a divergence from PC: guest stores with index in [log_from, log_from+log_count)
+// go to writes.log in the PC launcher's --write-log format, so the two can be diffed line by line.
+void start_write_log(dream::System& sys, std::uint64_t from, std::uint64_t count) {
+    if (count == 0)
+        return;
+    auto buf = std::make_shared<std::string>();
+    const std::string path = path_in_dir("writes.log");
+    ikaruga::host::file_write(path.c_str(), nullptr, 0);
+    sys.memory.log_from = from;
+    sys.memory.log_to = from + count;
+    sys.memory.on_hashed_write = [&sys, buf, path, last = from + count - 1](std::uint64_t index,
+        std::uint32_t addr, std::uint64_t value, unsigned size) {
+        char line[96];
+        const int n = std::snprintf(line, sizeof line,
+            "%llu %08lx %u %016llx pc %08lx pr %08lx\n", static_cast<unsigned long long>(index),
+            static_cast<unsigned long>(addr), size, static_cast<unsigned long long>(value),
+            static_cast<unsigned long>(sys.ctx.pc), static_cast<unsigned long>(sys.ctx.pr));
+        buf->append(line, n);
+        if (buf->size() > 60000 || index == last) {
+            ikaruga::host::file_append(path.c_str(), buf->data(),
+                static_cast<std::uint32_t>(buf->size()));
+            buf->clear();
+        }
+    };
 }
 
 int quit(int rc) {
@@ -217,20 +243,26 @@ int main(int argc, char** argv) {
     dream::maple::Controller* pad_ptr = pad.get();
     // Row 9: the memory card image on ms0:, or a blank card when there is none.
     auto card = std::make_unique<dream::maple::MemoryCard>();
-    if (!host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
-        log_line("memory card: none on ms0:, using a blank one in memory");
+    if (host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
+        log_line("memory card: read VMU.BIN");
+    else
+        log_line("memory card: no VMU.BIN, formatted a blank one (saved on the first write)");
     maple.attach_expansion(0, 0, std::move(card));
     maple.attach(0, std::move(pad));
     sys.memory.map_mmio(dream::maple::Bus::kBase, dream::maple::Bus::kEnd, &maple);
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    const std::uint32_t rtc_seed = rtc_seed_from_cfg();
+    // rtc_seed: the console clock in seconds since 1970, as the PC launcher's --rtc-seed.
+    const std::uint32_t rtc_seed = cfg_number("rtc_seed", 1);
     dream::aica::Rtc rtc(rtc_seed + dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
     start_rtc_tick(sys, rtc);
     log_line("rtc: seed %" PRIu32, rtc_seed);
-    start_write_hash(sys, rtc);
+    // hash_every: frames between hash lines (1 to find the first frame that differs from PC).
+    const std::uint32_t hash_every = cfg_number("hash_every", kLogEvery);
+    start_write_hash(sys, rtc, hash_every ? hash_every : kLogEvery);
+    start_write_log(sys, cfg_number("log_from", 0), cfg_number("log_count", 0));
 
     const std::uint64_t t0 = host::clock_us();
     auto report = [&](const char* what) {
