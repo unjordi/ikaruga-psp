@@ -7,7 +7,7 @@
 Variables de los comandos:
 
 ```sh
-export DREAM_RECOMP=<dream-recomp checkout con build-rel/>   # aquí: ~/code/ajenos/dr-rev
+export DREAM_RECOMP=<dream-recomp checkout con build-rel/>
 G=$DREAM_RECOMP/games/ikaruga/extracted
 E=build/psp/ikaruga/EBOOT.PBP
 DREAM_RECOMP=$DREAM_RECOMP scripts/build-psp-ikaruga.sh $DREAM_RECOMP/build-rel/games/ikaruga/gen --solo-os
@@ -16,6 +16,8 @@ DREAM_RECOMP=$DREAM_RECOMP scripts/build-psp-ikaruga.sh $DREAM_RECOMP/build-rel/
 EBOOT final: sha256 `a74682950c034f04f51753f75dbbc20a028048cb52eb8358a69bf0c4cf9bbaa4`.
 «Antes» es el EBOOT de `develop` (`e7ce644`) hecho con el mismo comando, salvo en 1 (el programa
 de prueba con el parche viejo) y en 5 (el EBOOT con callbacks pero sin reabrir el disco).
+
+Revisión (2026-11-06 14:0x): integrada con develop (idle-skip) y repetidas las siete pruebas desde cero: todas pasan; `write_hash` igual PC↔PSP en los cuadros 60…600 con idle-skip en ambos lados (CONFIRMADO).
 
 ## Disco: el oráculo necesita el disco real
 
