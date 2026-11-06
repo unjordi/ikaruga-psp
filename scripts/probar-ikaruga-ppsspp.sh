@@ -83,8 +83,9 @@ done
 alive=1
 kill -0 "$pid" 2>/dev/null || alive=0
 if [ -n "$CAPTURA" ] && [ $alive -eq 1 ]; then import -window root "$RAW" || true; fi
-kill "$pid" 2>/dev/null
-wait "$pid" 2>/dev/null || true
+[ $alive -eq 1 ] && kill "$pid" 2>/dev/null
+wait "$pid" 2>/dev/null
+echo $? > "$WORK/ppsspp-rc"
 echo "$alive" > "$WORK/alive"
 SH
 export APP WORK LOG RAW GAME SEGUNDOS CAPTURA
@@ -93,16 +94,21 @@ timeout $((SEGUNDOS + 60)) xvfb-run -a -s '-screen 0 480x272x24' sh "$WORK/corre
 rc=$?
 set -e
 
+# Logs and files the EBOOT wrote are copied before any verdict, also when the run failed.
 [[ -f "$LOG" ]] && cp "$LOG" "${SALIDA%.log}.ppsspp.log"
+[[ -f "$WORK/stdout.log" ]] && cp "$WORK/stdout.log" "${SALIDA%.log}.ppsspp-stdout.log"
 [[ -n "$CAPTURA" && -s "$RAW" ]] && cp "$RAW" "$CAPTURA"
+[[ -f "$GAME/ikaruga.log" ]] && cp "$GAME/ikaruga.log" "$SALIDA"
+for raw in "$GAME"/captura-*.raw "$GAME"/ta-*.bin; do
+  [[ -f "$raw" ]] && cp "$raw" "$(dirname "$SALIDA")/"
+done
+ALIVE="$(cat "$WORK/alive" 2>/dev/null || echo ?)"
+PPSSPP_RC="$(cat "$WORK/ppsspp-rc" 2>/dev/null || echo ?)"
+[[ "$ALIVE" == 1 ]] && PPSSPP_RC="$PPSSPP_RC (killed by this script)"
+echo "PPSSPP exit code: $PPSSPP_RC; still running at the end: $ALIVE; xvfb-run/timeout exit: $rc" >&2
 [[ $rc -eq 0 ]] || { echo "probar-ikaruga-ppsspp: run failed (exit $rc)" >&2; exit 1; }
 grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
   echo "probar-ikaruga-ppsspp: PPSSPP could not boot the EBOOT" >&2; exit 1; }
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
-cp "$GAME/ikaruga.log" "$SALIDA"
-for raw in "$GAME"/captura-*.raw "$GAME"/ta-*.bin; do
-  [[ -f "$raw" ]] && cp "$raw" "$(dirname "$SALIDA")/"
-done
-echo "PPSSPP still running at the end: $(cat "$WORK/alive" 2>/dev/null || echo ?)" >&2
 echo "$SALIDA"
