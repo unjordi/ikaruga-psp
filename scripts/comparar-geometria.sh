@@ -14,6 +14,8 @@
 # the polygon counts are equal; exit 1 otherwise.
 # --reusar keeps an existing PSP capture/log and PC screenshot/stream in DIR.
 # Default DIR: build/psp/evidencia/geometria-N[-sin-dibujo]. Default N: 2600.
+# Env: DREAM_RECOMP=<dream-recomp checkout> for the decoder of contar-poligonos instead of
+#      third_party/dream-recomp.
 # Host needs: what probar-ikaruga-ppsspp.sh needs, g++, python3 with Pillow, a Wayland session for
 # the PC window (WAYLAND_DISPLAY/XDG_RUNTIME_DIR; defaults wayland-1 and /run/user/<uid>).
 set -euo pipefail
@@ -46,7 +48,7 @@ mkdir -p "$OUT"
 
 # Polygon counter for the PC stream: the submodule's decoder, built for the host.
 CONTAR="$REPO/build/host/contar-poligonos"
-DR="$REPO/third_party/dream-recomp/render"
+DR="${DREAM_RECOMP:-$REPO/third_party/dream-recomp}/render"
 if [[ ! -x "$CONTAR" || "$REPO/scripts/contar-poligonos.cpp" -nt "$CONTAR" ]]; then
   mkdir -p "$(dirname "$CONTAR")"
   g++ -std=c++20 -O2 -I"$DR/include" "$REPO/scripts/contar-poligonos.cpp" \
