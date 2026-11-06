@@ -77,7 +77,7 @@ Junto al EBOOT; líneas `clave = valor`, `#` comenta. `rtc_seed` (default 1), `h
 
 ## Evidencia
 
-El sandbox de esta corrida no dejó escribir en `~/code/ajenos/ikaruga-tareas/fila8-evidencia/`
+La evidencia quedó fuera del repo
 (solo entraron `redondeo-antes.log` y `redondeo-despues.log`). El resto está en
 `build/psp/evidencia/` del worktree: `final/` (corrida final de todo), `*-antes.txt`,
 `*-despues.txt`, `igual-pc/`, `vmu/`, `salida-suspension/`.
@@ -98,7 +98,7 @@ El sandbox de esta corrida no dejó escribir en `~/code/ajenos/ikaruga-tareas/fi
 - **VMU:** no probé un corte de energía; entre `sceIoRemove` y `sceIoRename` hay un momento en que
   solo existe `VMU.BIN.TMP`, y al arrancar no la recupero. Cada escritura de bloque reescribe
   128 KB (144 escrituras al arrancar): el costo en Memory Stick real no lo medí.
-- El submódulo estaba vacío en el worktree: compilé contra `~/code/ajenos/dr-rev` (`DREAM_RECOMP`)
+- El submódulo estaba vacío en el worktree: compilé contra otro checkout de dream-recomp (`DREAM_RECOMP`)
   sin poder confirmar con git que esté en `51ca276`.
 - `main.cpp`: lo nuevo está en funciones aparte, pero el callback de VBlank y el arranque reciben
   llamadas nuevas (`test_hooks`, `check_exit`, `power_init`). Si la fila idle-skip toca esas
