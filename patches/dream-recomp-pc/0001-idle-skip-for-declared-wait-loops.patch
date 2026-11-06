@@ -1,0 +1,388 @@
+From 29dd45d2f9d6cd629d27222706374be7b5784c97 Mon Sep 17 00:00:00 2001
+From: unjordi <jordi@ciencias.unam.mx>
+Date: Fri, 6 Nov 2026 09:03:09 -0600
+Subject: [PATCH] Idle-skip for declared wait loops
+
+A game config lists wait-loop head blocks under [idle]; the translator emits idle_poll there and the runtime fast-forwards turns that cannot reach the next scheduler event. Ikaruga declares kmWaitVBlank's loop (katana_wait_vblank). --no-idle-skip turns it off; the report counts skips.
+---
+ docs/game-config.md                           | 18 ++++++
+ docs/runtime-interrupts.md                    |  5 +-
+ games/ikaruga/ikaruga.toml                    |  6 ++
+ runtime/boot/boot_main.cpp                    | 22 ++++++-
+ runtime/include/dream/runtime/sh4/abi.h       |  5 ++
+ runtime/include/dream/runtime/system.h        | 12 ++++
+ runtime/src/sh4/abi_bare.cpp                  |  5 ++
+ runtime/src/system.cpp                        | 62 +++++++++++++++++++
+ .../dream/translator/config/game_config.h     |  1 +
+ translator/include/dream/translator/emit.h    |  3 +
+ translator/src/config/game_config.cpp         |  3 +-
+ translator/src/emit/emit.cpp                  |  2 +
+ translator/src/main.cpp                       |  1 +
+ 13 files changed, 141 insertions(+), 4 deletions(-)
+
+diff --git a/docs/game-config.md b/docs/game-config.md
+index 1cb3f2c..d8a841b 100644
+--- a/docs/game-config.md
++++ b/docs/game-config.md
+@@ -41,6 +41,9 @@ sweep = true                         # linear sweep of gaps (default true)
+ 
+ [hooks]                              # guest address -> hook name (Phase 3)
+ "0x0C010000" = "boot"
++
++[idle]                               # wait-loop head block -> idle kind
++"0x0C0370BA" = "katana_wait_vblank"
+ ```
+ 
+ Rules the loader enforces: `game.id`, `game.title`, `binary.path`, `binary.load_address` and
+@@ -48,6 +51,21 @@ Rules the loader enforces: `game.id`, `game.title`, `binary.path`, `binary.load_
+ (`addr & 0x1FFFFFFF` equal); addresses are even; `hle`/`hooks` keys are addresses written as strings.
+ Errors name the field.
+ 
++## Idle loops
++
++`[idle]` names the head block of a guest wait loop. The translator emits an `idle_poll` call at the
++start of that block; the runtime compares two consecutive turns and, when nothing happened between
++them (no interrupt, trap or device access, same registers except the cycle count and the loop
++counter), adds the cycles of the turns that cannot reach the next scheduler event instead of running
++them. The turn that reaches the event runs as translated, so interrupts land on the same cycle as
++without skipping. `--no-idle-skip` on the launcher turns it off; the report counts the skips.
++
++Kinds:
++
++- `katana_wait_vblank`: the inner loop of Katana's `kmWaitVBlank`. `@r15` points at a timeout word
++  that each turn lowers by one, and `r3` holds it at the loop head; the skip lowers it by the number
++  of turns skipped.
++
+ ## What `dream-translate game` does
+ 
+ ```sh
+diff --git a/docs/runtime-interrupts.md b/docs/runtime-interrupts.md
+index 2e97004..c776677 100644
+--- a/docs/runtime-interrupts.md
++++ b/docs/runtime-interrupts.md
+@@ -76,7 +76,8 @@ field and vsync (SPG_VBLANK vstart/vbend). Register field layouts follow Flycast
+ 
+ ## Not done from the plan's wording
+ 
+-- Idle-loop fast-forward: needs the WP1.4 idle-loop tags, which do not exist yet. When a game spins
+-  on SPG_STATUS the runtime will run the loop at full speed; measure on Crazy Taxi before building.
++- Idle-loop fast-forward: only for loops a game config declares under `[idle]`
++  (docs/game-config.md, "Idle loops"); there is no automatic detection. A game that spins on
++  SPG_STATUS without such an entry still runs the loop at full speed.
+ - The interrupt-latency test with a KOS TMU program: needs a program loader and SCIF output
+   (WP2.6/2.7). The unit test drives the same path with C++ stand-ins registered at VBR+0x600.
+diff --git a/games/ikaruga/ikaruga.toml b/games/ikaruga/ikaruga.toml
+index fb8957c..b4fc5fc 100644
+--- a/games/ikaruga/ikaruga.toml
++++ b/games/ikaruga/ikaruga.toml
+@@ -64,3 +64,9 @@ entry = 0x8C000600
+ # changing addresses near 0x8C00EE00. Neither is code: the first is a table of float constants that
+ # kmSetUserClipping copies into a local array on its stack, the second a table of 12 small integers
+ # copied the same way. Do not add them.
++
++# Wait loops the runtime may fast-forward to the next scheduler event (--no-idle-skip turns it off).
++[idle]
++# kmWaitVBlank's inner loop: two kmyRequestCallback calls and a timeout decrement until the VBlank
++# interrupt changes the frame counter.
++"0x0C0370BA" = "katana_wait_vblank"
+diff --git a/runtime/boot/boot_main.cpp b/runtime/boot/boot_main.cpp
+index 9dff7cd..55f3722 100644
+--- a/runtime/boot/boot_main.cpp
++++ b/runtime/boot/boot_main.cpp
+@@ -749,6 +749,11 @@ std::string report_text(dream::System& sys, dream::hle::Bios& bios, const dream:
+                   static_cast<unsigned long long>(sys.interrupts_delivered), sys.max_nesting,
+                   static_cast<unsigned long long>(sys.traps_taken));
+     s += buf;
++    std::snprintf(buf, sizeof buf, "idle skips: %llu (%llu loop turns, %llu cycles)\n",
++                  static_cast<unsigned long long>(sys.idle_skips),
++                  static_cast<unsigned long long>(sys.idle_skipped_turns),
++                  static_cast<unsigned long long>(sys.idle_skipped_cycles));
++    s += buf;
+     std::snprintf(buf, sizeof buf, "task-switching RTEs: %llu\n",
+                   static_cast<unsigned long long>(sys.task_switch_rtes));
+     s += buf;
+@@ -1126,6 +1131,7 @@ void usage(const char* argv0, std::FILE* out) {
+         "  --no-create-vmu        fail instead of creating a missing card\n"
+         "  --unthrottled          run as fast as the host can rather than at the guest's clock\n"
+         "  --no-audio / --audio   force sound off, or on for a headless run\n"
++        "  --no-idle-skip         run the config's [idle] wait loops turn by turn\n"
+         "\n"
+         "In the window: arrow keys are the d-pad, Z X A S are A B X Y, return is start, Q and W\n"
+         "are the triggers, F10 toggles the frame-rate counter, F11 captures the frame, F12 writes\n"
+@@ -1263,7 +1269,7 @@ int main(int argc, char** argv) {
+     // --audio plays the AICA's output through the host's sound device. On by default with a window,
+     // since a player expects sound; --no-audio turns it off for a run that is only being measured,
+     // where a device that consumes at its own rate would pace the guest.
+-    bool audio = false, no_audio = false;
++    bool audio = false, no_audio = false, no_idle_skip = false;
+     // --replay compares each guest function against the interpreter with the same inputs: the
+     // function runs, memory is put back, the interpreter runs it again, and the two exits are
+     // compared. Needs a build translated with --replay-hooks. --replay-only limits it to named
+@@ -1363,6 +1369,8 @@ int main(int argc, char** argv) {
+             audio = true;
+         else if (!std::strcmp(argv[i], "--no-audio"))
+             no_audio = true;
++        else if (!std::strcmp(argv[i], "--no-idle-skip"))
++            no_idle_skip = true;
+         else if (!std::strcmp(argv[i], "--replay"))
+             replay_all = true;
+         else if (!std::strcmp(argv[i], "--replay-self-check"))
+@@ -1462,6 +1470,18 @@ int main(int argc, char** argv) {
+     const auto region = dream::hle::region_from_name(cfg.region);
+     bios.set_locale(dream::hle::Language::English, region, dream::hle::broadcast_for(region));
+     sys.install();
++    if (!no_idle_skip) {
++        for (const auto& [addr, name] : cfg.idle) {
++            dream::System::IdleKind kind;
++            if (!dream::System::idle_kind_from_name(name, kind)) {
++                std::fprintf(stderr, "[idle] 0x%08x: unknown kind '%s'\n", addr, name.c_str());
++                return 2;
++            }
++            const std::uint32_t head = (addr & 0x1FFFFFFFu) -
++                                       (cfg.load_address & 0x1FFFFFFFu) + cfg.link_address;
++            sys.idle_loops[head] = kind;
++        }
++    }
+     bios.setup_boot(cfg.entry);
+     const std::vector<std::uint8_t> ipbin(sys.memory.ram() + 0x8000, sys.memory.ram() + 0x10000);
+     std::memcpy(sys.memory.ram() + (cfg.load_address & (dream::mem::DcMemory::kRamSize - 1)),
+diff --git a/runtime/include/dream/runtime/sh4/abi.h b/runtime/include/dream/runtime/sh4/abi.h
+index 0837731..fe268de 100644
+--- a/runtime/include/dream/runtime/sh4/abi.h
++++ b/runtime/include/dream/runtime/sh4/abi.h
+@@ -70,6 +70,9 @@ void run_guest(Ctx& c, ::dream::Memory& m, GuestFn entry);
+ 
+ // Exceptions and interrupts. Emitted code calls deliver_irq when `c.cycles >= c.next_event`.
+ void deliver_irq(Ctx& c, ::dream::Memory& m);
++// Emitted at the head of a block the game config lists under [idle] (docs/game-config.md): a wait
++// loop the runtime may fast-forward to the next scheduler event. `pc` is the block address.
++void idle_poll(Ctx& c, ::dream::Memory& m, std::uint32_t pc);
+ void trapa(Ctx& c, ::dream::Memory& m, std::uint32_t imm);
+ // Returns true when the RTE closes a delivered exception and resumes the interrupted context (the
+ // emitted `return` then unwinds to the delivery point) and false when it is a jump: SR and PC are
+@@ -99,6 +102,8 @@ public:
+     // it. Otherwise RTE is a plain transfer to SPC with SR from SSR (Katana's startup enters the
+     // program that way); the interpreter continues there instead of returning.
+     virtual bool in_exception_frame() const noexcept { return true; }
++    // Head of a declared idle loop; the default runs the loop as translated.
++    virtual void on_idle(Ctx&, ::dream::Memory&, std::uint32_t) {}
+ };
+ void set_hooks(Hooks* hooks) noexcept;
+ Hooks* hooks() noexcept;
+diff --git a/runtime/include/dream/runtime/system.h b/runtime/include/dream/runtime/system.h
+index cdb4e69..ea92fe2 100644
+--- a/runtime/include/dream/runtime/system.h
++++ b/runtime/include/dream/runtime/system.h
+@@ -8,6 +8,7 @@
+ 
+ #include <array>
+ #include <cstdint>
++#include <map>
+ #include <stdexcept>
+ #include <string>
+ #include <utility>
+@@ -48,6 +49,7 @@ public:
+     void on_untranslated(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t target) override;
+     void on_resume(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) override;
+     bool in_exception_frame() const noexcept override { return nesting > 0; }
++    void on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) override;
+ 
+     // Delivers every interrupt SR currently lets through, most urgent first, running handlers to
+     // completion. Returns how many were delivered.
+@@ -61,8 +63,18 @@ public:
+     pvr::Spg spg;
+     sh4::Ctx ctx{};
+ 
++    // Wait loops that may be fast-forwarded ([idle] in the game config, docs/game-config.md).
++    // katana_wait_vblank: kmWaitVBlank's inner loop; @r15 points at a timeout word that each turn
++    // decrements by one, mirrored in r3 at the loop head.
++    enum class IdleKind { katana_wait_vblank };
++    std::map<std::uint32_t, IdleKind> idle_loops;  // loop head block -> kind; empty = no skipping
++    // Returns false for an unknown kind name.
++    static bool idle_kind_from_name(const std::string& name, IdleKind& kind);
++    std::uint64_t idle_skips = 0, idle_skipped_turns = 0, idle_skipped_cycles = 0;
++
+     // Diagnostics
+     std::uint64_t interrupts_delivered = 0, traps_taken = 0;
++    std::uint64_t device_accesses = 0;
+     unsigned nesting = 0, max_nesting = 0;
+     // Diagnostics for exception frames: an RTE whose SPC is not the interrupted pc is a task
+     // switch inside the handler (the guest kernel resumed a different context).
+diff --git a/runtime/src/sh4/abi_bare.cpp b/runtime/src/sh4/abi_bare.cpp
+index 7d292b7..2930c55 100644
+--- a/runtime/src/sh4/abi_bare.cpp
++++ b/runtime/src/sh4/abi_bare.cpp
+@@ -343,6 +343,11 @@ void deliver_irq(Ctx& c, ::dream::Memory& m) {
+     c.next_event = ~std::uint64_t{0};  // the bare harness never raises interrupts
+ }
+ 
++void idle_poll(Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
++    if (g_hooks)
++        g_hooks->on_idle(c, m, pc);
++}
++
+ void trapa(Ctx& c, ::dream::Memory& m, std::uint32_t imm) {
+     if (g_hooks) {
+         g_hooks->on_trapa(c, m, imm);
+diff --git a/runtime/src/system.cpp b/runtime/src/system.cpp
+index b9813e7..2102e34 100644
+--- a/runtime/src/system.cpp
++++ b/runtime/src/system.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cstring>
+ 
+ #include "dream/runtime/hle/bios.h"
+ #include "dream/runtime/sh4/ops.h"
+@@ -44,6 +45,7 @@ void System::install() {
+     // access, so timers and drive status reflect the cycles emitted code has accumulated since the
+     // last interrupt poll. Guarded because an event run here may itself touch a device.
+     memory.on_device_access = [this] {
++        ++device_accesses;
+         if (advancing_for_device || sched.now() >= ctx.cycles)
+             return;
+         advancing_for_device = true;
+@@ -126,6 +128,66 @@ void System::on_poll(sh4::Ctx& c, ::dream::Memory& m) {
+     arm_next_poll(c);
+ }
+ 
++bool System::idle_kind_from_name(const std::string& name, IdleKind& kind) {
++    if (name == "katana_wait_vblank") {
++        kind = IdleKind::katana_wait_vblank;
++        return true;
++    }
++    return false;
++}
++
++// Called at the head of a declared wait loop. A turn is skippable when the previous head was the
++// same loop, nothing was delivered, trapped or read from a device in between, and the whole
++// context matches except the cycle count and the timeout (one lower). Then the next k turns are
++// copies of it: the runtime adds k turns' cycles and lowers the timeout by k, stopping before any
++// turn that could reach next_event or end the loop on the timeout. Those turns run as translated,
++// so interrupts land at the same cycle as without skipping.
++void System::on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
++    struct Turn {
++        bool valid = false;
++        std::uint32_t pc = 0, timeout_addr = 0, timeout = 0;
++        std::uint64_t interrupts = 0, traps = 0, devices = 0;
++        sh4::Ctx ctx{};
++    };
++    static Turn prev;
++    if (idle_loops.find(pc) == idle_loops.end())
++        return;
++    const std::uint32_t timeout_addr = m.read32(c.r[15]);
++    std::uint32_t timeout = m.read32(timeout_addr);
++    if (prev.valid && prev.pc == pc && prev.timeout_addr == timeout_addr &&
++        prev.interrupts == interrupts_delivered && prev.traps == traps_taken &&
++        prev.devices == device_accesses && timeout != 0 && timeout + 1 == prev.timeout &&
++        c.r[3] == timeout && c.cycles > prev.ctx.cycles && c.next_event > c.cycles) {
++        sh4::Ctx a = prev.ctx, b = c;
++        a.cycles = b.cycles = 0;
++        a.next_event = b.next_event = 0;
++        a.r[3] = b.r[3] = 0;
++        if (!std::memcmp(&a, &b, sizeof a)) {
++            const std::uint64_t d = c.cycles - prev.ctx.cycles;
++            // The polls of a skipped turn fall at or before its end; keep them below next_event.
++            std::uint64_t k = (c.next_event - c.cycles - 1) / d;
++            k = std::min<std::uint64_t>(k, timeout - 1);
++            if (k) {
++                c.cycles += k * d;
++                timeout -= static_cast<std::uint32_t>(k);
++                m.write32(timeout_addr, timeout);
++                c.r[3] = timeout;
++                ++idle_skips;
++                idle_skipped_turns += k;
++                idle_skipped_cycles += k * d;
++            }
++        }
++    }
++    prev.valid = true;
++    prev.pc = pc;
++    prev.timeout_addr = timeout_addr;
++    prev.timeout = timeout;
++    prev.interrupts = interrupts_delivered;
++    prev.traps = traps_taken;
++    prev.devices = device_accesses;
++    prev.ctx = c;
++}
++
+ void System::on_trapa(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t imm) {
+     memory.tra = (imm & 0xFFu) << 2;
+     memory.expevt = 0x160;
+diff --git a/translator/include/dream/translator/config/game_config.h b/translator/include/dream/translator/config/game_config.h
+index b348fe7..718b770 100644
+--- a/translator/include/dream/translator/config/game_config.h
++++ b/translator/include/dream/translator/config/game_config.h
+@@ -40,6 +40,7 @@ struct GameConfig {
+ 
+     std::map<std::uint32_t, std::string> hle;    // guest address -> runtime handler name
+     std::map<std::uint32_t, std::string> hooks;  // guest address -> hook name
++    std::map<std::uint32_t, std::string> idle;   // wait-loop head block -> idle-loop kind
+ };
+ 
+ // Loads and validates. On failure returns false and sets `error` to one line naming the field.
+diff --git a/translator/include/dream/translator/emit.h b/translator/include/dream/translator/emit.h
+index 86af1fe..180797c 100644
+--- a/translator/include/dream/translator/emit.h
++++ b/translator/include/dream/translator/emit.h
+@@ -2,6 +2,7 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <set>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -49,6 +50,8 @@ struct EmitOptions {
+     bool replay_hooks = false;
+     bool irq_checks = true;  // interrupt polls at entry and back-edges (ADR 7)
+     bool overlay = false;    // table entries carry the code words they were translated from
++    // Block addresses that start with an idle_poll call ([idle] in the game config).
++    std::set<std::uint32_t> idle_blocks;
+ };
+ 
+ // A run of bytes inside a function that discovery never decoded. Often a literal pool, sometimes
+diff --git a/translator/src/config/game_config.cpp b/translator/src/config/game_config.cpp
+index 86e46f0..0b8805f 100644
+--- a/translator/src/config/game_config.cpp
++++ b/translator/src/config/game_config.cpp
+@@ -161,7 +161,8 @@ bool finish(const toml::table& t, const std::filesystem::path& dir, GameConfig&
+     c.pointers = t["functions"]["pointers"].value_or(true);
+     c.sweep = t["functions"]["sweep"].value_or(true);
+     if (!get_addr_map(t["hle"], "hle", c.hle, error) ||
+-        !get_addr_map(t["hooks"], "hooks", c.hooks, error))
++        !get_addr_map(t["hooks"], "hooks", c.hooks, error) ||
++        !get_addr_map(t["idle"], "idle", c.idle, error))
+         return false;
+     return true;
+ }
+diff --git a/translator/src/emit/emit.cpp b/translator/src/emit/emit.cpp
+index 2ebdd71..e21fa93 100644
+--- a/translator/src/emit/emit.cpp
++++ b/translator/src/emit/emit.cpp
+@@ -261,6 +261,8 @@ public:
+             const std::uint32_t start = *it;
+             const std::uint32_t stop = block_end_.at(start);
+             out << label(start) << ":\n";
++            if (opt_.idle_blocks.count(start))
++                out << "    idle_poll(c, m, " << hexu(start) << ");\n";
+             std::uint32_t pc = start;
+             pending_cycles_ = 0;
+             mode_ = block_mode_.at(start);
+diff --git a/translator/src/main.cpp b/translator/src/main.cpp
+index e451638..c8b7760 100644
+--- a/translator/src/main.cpp
++++ b/translator/src/main.cpp
+@@ -483,6 +483,7 @@ int cmd_game(int argc, char** argv) {
+     std::filesystem::create_directories(out_dir);
+     std::vector<std::uint32_t> seeds{to_link_space(cfg, cfg.entry)};
+     for (std::uint32_t a : cfg.extra_functions) seeds.push_back(to_link_space(cfg, a));
++    for (const auto& entry : cfg.idle) opt.idle_blocks.insert(to_link_space(cfg, entry.first));
+     int rc = translate_view(cfg, img, seeds, cfg.id, out_dir, opt, cfg.symbols ? &syms : nullptr);
+     // Relocated copies: the same bytes viewed at the address they execute from. A destination
+     // that appears more than once (overlays) numbers its later units _2, _3, ...; the game's
+-- 
+2.56.0
+
