@@ -16,6 +16,9 @@
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
 #      VMU.BIN left after it (removed if there is none).
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
+#      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT
+#      writes is copied next to <salida.log>. <segundos> is then an upper bound: the run ends as
+#      soon as the EBOOT quits.
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
 # for the screenshot.
 set -euo pipefail
@@ -61,6 +64,9 @@ if [[ "$JUEGO" != "-" ]]; then
     "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
   fi
 fi
+if [[ -n "${PROBAR_CFG:-}" ]]; then
+  cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
+fi
 
 # Private PPSSPP config: the user's settings are neither used nor touched. OpenGL because Xvfb has no DRI3 for Vulkan. Speed unlimited is not set: the
 # PSP's own clock paces nothing here, the run is CPU bound.
@@ -82,28 +88,44 @@ flatpak run --filesystem="$WORK" --command=sh "$APP" -c \
   'export XDG_CONFIG_HOME="$WORK/config" XDG_DATA_HOME="$WORK/data"; exec PPSSPPSDL --windowed --xres 480 --yres 272 --log="$LOG" "$GAME/EBOOT.PBP"' \
   >"$WORK/stdout.log" 2>&1 &
 pid=$!
-sleep "$SEGUNDOS"
+t=0
+while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
+  if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
+  sleep 1; t=$((t + 1))
+done
 alive=1
 kill -0 "$pid" 2>/dev/null || alive=0
 if [ -n "$CAPTURA" ] && [ $alive -eq 1 ]; then import -window root "$RAW" || true; fi
-kill "$pid" 2>/dev/null
-wait "$pid" 2>/dev/null || true
+[ $alive -eq 1 ] && kill "$pid" 2>/dev/null
+wait "$pid" 2>/dev/null
+echo $? > "$WORK/ppsspp-rc"
 echo "$alive" > "$WORK/alive"
 SH
 export APP WORK LOG RAW GAME SEGUNDOS CAPTURA
 set +e
-timeout $((SEGUNDOS + 60)) xvfb-run -a -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
+# -d: Xvfb picks a free display itself; -a can give two parallel runs the same one, and the
+# first to end then kills the X server under the other.
+timeout $((SEGUNDOS + 60)) xvfb-run -d -s '-screen 0 480x272x24' sh "$WORK/correr.sh"
 rc=$?
 set -e
 
+# Logs and files the EBOOT wrote are copied before any verdict, also when the run failed.
 [[ -f "$LOG" ]] && cp "$LOG" "${SALIDA%.log}.ppsspp.log"
+[[ -f "$WORK/stdout.log" ]] && cp "$WORK/stdout.log" "${SALIDA%.log}.ppsspp-stdout.log"
 [[ -n "$CAPTURA" && -s "$RAW" ]] && cp "$RAW" "$CAPTURA"
+[[ -f "$GAME/ikaruga.log" ]] && cp "$GAME/ikaruga.log" "$SALIDA"
+for raw in "$GAME"/captura-*.raw "$GAME"/ta-*.bin; do
+  [[ -f "$raw" ]] && cp "$raw" "$(dirname "$SALIDA")/"
+done
+ALIVE="$(cat "$WORK/alive" 2>/dev/null || echo ?)"
+PPSSPP_RC="$(cat "$WORK/ppsspp-rc" 2>/dev/null || echo ?)"
+[[ "$ALIVE" == 1 ]] && PPSSPP_RC="$PPSSPP_RC (killed by this script)"
+echo "PPSSPP exit code: $PPSSPP_RC; still running at the end: $ALIVE; xvfb-run/timeout exit: $rc" >&2
 [[ $rc -eq 0 ]] || { echo "probar-ikaruga-ppsspp: run failed (exit $rc)" >&2; exit 1; }
 grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
   echo "probar-ikaruga-ppsspp: PPSSPP could not boot the EBOOT" >&2; exit 1; }
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
-cp "$GAME/ikaruga.log" "$SALIDA"
 for f in ${PROBAR_SACAR:-}; do
   [[ -f "$GAME/$f" ]] && cp "$GAME/$f" "$(dirname "$SALIDA")/$f"
 done
@@ -111,5 +133,4 @@ if [[ -n "${PROBAR_VMU_OUT:-}" ]]; then
   rm -f "$PROBAR_VMU_OUT"
   [[ -f "$GAME/VMU.BIN" ]] && cp "$GAME/VMU.BIN" "$PROBAR_VMU_OUT"
 fi
-echo "PPSSPP still running at the end: $(cat "$WORK/alive" 2>/dev/null || echo ?)" >&2
 echo "$SALIDA"

@@ -8,16 +8,34 @@
 #include <vector>
 
 #include "dream/runtime/gdrom/disc.h"
+#include "dream/render/display_list.h"
 #include "dream/runtime/maple/maple.h"
 
 namespace ikaruga::host {
 
-// Rows 1-4: GE context, renderer, texture cache, presentation.
+// Rows 1-4: GE context, renderer, presentation (no textures yet).
+struct VideoStats {
+    std::uint32_t drawn = 0;    // strips sent to the GE
+    std::uint32_t blended = 0;  // of those, translucent
+    std::uint32_t list_bytes = 0;  // GE display list used by the render, of list_capacity
+    std::uint32_t list_capacity = 0;
+    std::uint32_t dropped = 0;  // strips not drawn because the display list was full
+};
 bool video_init();
-void video_present_frame(const std::uint8_t* vram, std::uint32_t vram_size);
+// Off: frames are still cleared and swapped, but no geometry is drawn.
+void video_set_drawing(bool enabled);
+// Off: every strip passes, whatever its depth compare.
+void video_set_depth_test(bool enabled);
+// Called once per strip drawn while set (diagnostics); nullptr turns it off.
+void video_set_trace(void (*trace)(const char*, ...));
+// Draws one decoded render into the back buffer and shows it.
+VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref);
+// The buffer on screen as packed RGB888, top row first.
+bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 
-// Row 5: controller.
-void input_poll(dream::maple::ControllerState& pad);
+// Row 5: controller. Scripted presses "name@frame,..." (PC's --press syntax); returns how many.
+std::size_t input_script(const std::string& presses);
+void input_poll(dream::maple::ControllerState& pad, std::uint64_t frame);
 
 // Row 6: audio output.
 bool audio_init(unsigned rate);
