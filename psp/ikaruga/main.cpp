@@ -125,6 +125,17 @@ int main() {
     sys.memory.map_mmio(0x005F7400u, 0x005F7500u, &g1);
     sys.memory.map_mmio(dream::holly::G2Dma::kBase, dream::holly::G2Dma::kEnd, &g2);
     sys.memory.map_mmio(0x005F7C00u, 0x005F7D00u, &pvrdma);
+    // SH-4 on-chip modules the BIOS and the game touch; plain registers as on PC, the serial port
+    // included (its output is not kept).
+    dream::mem::RegisterFile bsc(0xFF800000u, 0x50 / 4), ubc(0xFF200000u, 0x24 / 4),
+        cpg(0xFFC00000u, 0x10 / 4), sh4rtc(0xFFC80000u, 0x40 / 4), scif(0xFFE80000u, 0x28 / 4);
+    dream::mem::NullRegion cache_arrays;
+    sys.memory.map_p4(0xF0000000u, 0xF6000000u, &cache_arrays);
+    sys.memory.map_p4(0xFF800000u, 0xFF800050u, &bsc);
+    sys.memory.map_p4(0xFF200000u, 0xFF200024u, &ubc);
+    sys.memory.map_p4(0xFFC00000u, 0xFFC00010u, &cpg);
+    sys.memory.map_p4(0xFFC80000u, 0xFFC80040u, &sh4rtc);
+    sys.memory.map_p4(0xFFE80000u, 0xFFE80028u, &scif);
 
     dream::maple::Bus maple(sys.sched, sys.holly, sys.memory);
     auto pad = std::make_unique<dream::maple::Controller>();
