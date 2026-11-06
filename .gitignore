@@ -16,3 +16,18 @@ build/
 *.elf
 *.prx
 *.PBP
+# Generated code from the recompiler, wherever a tool writes it
+generated/
+gen/
+out/
+*.BIN
+# Console ROM dumps and memory cards: yours, not ours to distribute
+bios/
+dc_bios*
+dc_boot*
+dc_flash*
+*.vmu
+*.VMS
+# Captures of the running game show its textures: local evidence only
+capturas/
+*.ppm
