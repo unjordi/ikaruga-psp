@@ -34,7 +34,7 @@
 - `scripts/probar-ikaruga-ppsspp.sh`: `PROBAR_CFG`, sale en cuanto el EBOOT termina y copia
   `captura-*.raw`/`ta-*.bin`. `scripts/build-psp-ikaruga.sh --solo-os`.
 
-EBOOT medido: sha256 `bbf3d789ed62e0676d8cad958a15201181c963e9020a68408887cb64769ab4aa`,
+EBOOT medido: sha256 `9d94e2b960898639e751ac51864602eb952876f7d9418e10b0a008cdb5ef926d` (con idle-skip),
 `scripts/build-psp-ikaruga.sh <dr-rev>/build-rel/games/ikaruga/gen --solo-os`; imagen -Os
 14,68 MB + guest 28,1 MB = 42,78 MB de ~52 MB (sube 1,0 MB sobre la fila 5a: libpspgu y la lista).
 
@@ -44,7 +44,7 @@ B=<dr-rev>/build-rel/games/ikaruga/ikaruga_boot C=<dr-rev>/games/ikaruga/ikaruga
 ## Resultado en el cuadro 2600
 
 ```sh
-scripts/test-psp-geometria.sh $E $G $B $C          # ~31 min; --reusar repite sólo la comparación
+scripts/test-psp-geometria.sh $E $G $B $C          # ~16 min con idle-skip; --reusar repite sólo la comparación
 ```
 
 | | PSP (PPSSPP) | PC |
@@ -90,7 +90,10 @@ texturizados, y la IoU daba 0,1188 (`comparar-geometria.sh … --reusar` con esa
 | cuadro 1140 | 0,0323x | 0,20 ms |
 | juego, cuadro 2580 | 0,0238x | 7,49 ms (6,72 ms con `dibujar=0`) |
 
-- Llegar al cuadro 2600: **1828 s de reloj** en la corrida con `dibujar=0`
+- Con idle-skip (C++ de `dr-idle/build-rel/games/ikaruga/gen`): **904 s de reloj** con dibujo y
+  902 s con `dibujar=0`, las dos en paralelo (`psp-tiempo.txt`); velocidad acumulada 0,0484x al
+  cuadro 2600 y 7,50 ms de `on_render` medio. Las filas de arriba y lo que sigue son sin idle-skip.
+- Llegar al cuadro 2600 sin idle-skip: **1828 s de reloj** en la corrida con `dibujar=0`
   (`geometria-2600-sin-dibujo/psp-tiempo.txt`); la corrida con dibujo da 1822 s de reloj PSP
   emulado en su log (su tiempo de reloj no quedó escrito: la corrí antes de que el script lo
   guardara). Con dibujo y sin dibujo, los ciclos del guest en cada `tick` son idénticos.
@@ -98,6 +101,29 @@ texturizados, y la IoU daba 0,1188 (`comparar-geometria.sh … --reusar` con esa
   mayor parte del tiempo de `on_render` es decodificar en la CPU, que existe aunque no se dibuje.
 - Fila 5a (sin video) al cuadro 420: 0,0402x (`docs/arranque-psp.md`); con video, 0,0409x al 400:
   en el título el render no es lo que limita en PPSSPP. En juego no tengo el número sin video.
+
+## Por qué moría la corrida con dibujo
+`test-psp-geometria.sh` lanza las dos corridas de PPSSPP en paralelo. Con `xvfb-run -a` las dos
+eligen el mismo display (`:99`, el primero sin `/tmp/.X99-lock` al momento de mirar); la que
+termina primero mata ese Xvfb y la otra muere con `X connection to :99 broken` y
+`terminate called without an active exception` (PPSSPP sale con 134). No es el EBOOT: el
+`ikaruga.log` de la víctima se corta a media partida sin error. La corrida sin dibujo sale un
+poco antes, así que la víctima solía ser la de dibujo.
+
+Medido con 4 corridas cortas, dos a dos en paralelo (`build/psp/evidencia/repro-xvfb-a/`):
+con `-a`, `a1` y `a2` caen en `:100` y `a2` muere (exit 134, «run failed»); con `-d` (Xvfb
+elige display con `-displayfd`), `d1` en `:4` y `d2` en `:3`, las dos llegan a su captura.
+`probar-ikaruga-ppsspp.sh` y `probar-ppsspp.sh` usan ahora `xvfb-run -d`, y el primero copia
+`ikaruga.log`, el log y la salida de PPSSPP aunque la corrida falle, y escribe el código de
+salida de PPSSPP.
+
+Sospechas descartadas con medición, en la corrida con dibujo al cuadro 2600:
+- Lista GE: el render capturado usa 34 668 bytes de 1 048 576 (`ge_list_bytes` en el log; 96
+  con `dibujar=0`). Aun así `video_draw_frame` ahora corta el render (y cuenta `dropped`) antes
+  de escribir más allá de `g_list`; en el cuadro 2600, `dropped 0`.
+- `sceGuCopyImage` y la escritura de la captura: corrida sola (sin otra en paralelo), mismo
+  EBOOT: `capture: captura-2600.raw` escrita y PPSSPP vivo al final.
+- eDRAM: el mismo reparto de buffers sirve 2319 renders seguidos sin fallo en esa corrida.
 
 ## Determinismo
 Sin `rtc_semilla` la PSP tomaba la hora real y el render del cuadro 400 difería del de PC con
@@ -122,4 +148,3 @@ cuadro 400 y la PSP 25; sin `--vmu`, 25 y 25. `comparar-geometria.sh` corre PC s
   sacar de aquí. No probé la presentación en pantalla (sólo la captura).
 - La PSP corre con una tarjeta en blanco formateada en memoria; PC sin `--vmu` no conecta tarjeta.
   Los conteos coinciden así, pero no verifiqué que el juego vea lo mismo en ambos casos.
-- La evidencia quedó en `build/psp/evidencia/`, no en `ikaruga-tareas/fila5c-evidencia/`.

@@ -7,7 +7,8 @@
 #   (c) the polygon count of the decoded Frame at frame N is the same on PSP and on PC.
 #   scripts/test-psp-geometria.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml>
 #                                 [--cuadro N] [--reusar]
-# Each PPSSPP run of frame 2600 takes about 30 min; the two runs are started in parallel.
+# Each PPSSPP run of frame 2600 takes about 15 min with idle-skip; the two runs are started in
+# parallel.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
