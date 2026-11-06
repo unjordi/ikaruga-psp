@@ -145,3 +145,46 @@ Cuadros 60 y 180 (cycles, pc):
   de VBlank también varía entre corridas desde el cuadro 240 (cuadro 420: 0x0c03b320 sin
   idle-skip; 0x0c03cd60 con idle-skip y hoy).
 
+## Runtime a `-O2`, generado a `-Os` (fila 9a)
+
+Desde la fila 9a `build/psp/ikaruga/EBOOT.PBP` es la variante `mix` (runtime, stubs y `main.cpp` a
+`-O2`; `gen/*.cpp` a `-Os`); la de las secciones anteriores (todo `-Os`) sale como
+`build/psp/ikaruga/EBOOT-Os.PBP`. Las dos se construyen en la misma corrida, con el mismo `gen/` con
+idle-skip de la sección anterior (sha256 de la concatenación `924f8b67…aec884da`):
+
+```sh
+scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen --limpio
+G=<dr-idle>/games/ikaruga/extracted
+scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT-Os.PBP $G 120 build/psp/evidencia/fila9a-Os-120s.log
+scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $G 120 build/psp/evidencia/fila9a-mix-120s.log
+```
+
+EBOOTs: `EBOOT-Os.PBP` sha256 `488dde75fc53b05f6df19f641df75ea1047d18a9aee7235b7c6d1aa67799b3ec`
+(imagen 13,66 MB + guest 28,1 MB = 41,76 MB), `EBOOT.PBP` (`mix`) sha256
+`c11e79c10638ad43cadaf6a97c5e7353887217ef363c7ab4899a2b6f9a39e048` (13,75 MB + 28,1 MB = 41,85 MB de
+~52 MB; `docs/tamano-psp.md` §5). Idle-skip activo en las dos. Mismas advertencias que arriba
+(PPSSPP 1.20.4 en el Ryzen 9 9950X, `host_s` = reloj PSP emulado); una corrida de 120 s por variante.
+
+| | todo `-Os` | `mix` | `mix` / `-Os` |
+|---|---:|---:|---:|
+| cuadro alcanzado en 120 s | 840 (a los 118,6 s) | **1140** (a los 117,5 s) | |
+| cuadro 180 a los | 44,6 s | 31,6 s | 1,41x más rápido |
+| cuadro 600 a los | 93,0 s | 70,6 s | 1,32x |
+| cuadro 840 a los | 118,6 s | 91,4 s | 1,30x |
+| speed acumulada al final | 0,118x | **0,162x** | |
+| speed en el tramo 240→600 | 0,1525x | 0,1868x | 1,22x |
+| speed en el tramo 600→840 | 0,1561x | 0,1921x | 1,23x |
+
+Cuadros 60 y 180 (cycles, pc):
+
+| frames | todo `-Os` | `mix` |
+|---:|---|---|
+| 60 | 201 989 964, 0x0c051028 | 201 989 964, 0x0c051028 |
+| 180 | 602 355 154, 0x0c04b628 | 602 355 154, 0x0c04b628 |
+
+- En los 15 cuadros comunes (0–840) `cycles`, `pc`, `idle_skips` e `idle_cycles` son idénticos en
+  las dos corridas (`join` sobre las líneas `tick` de los dos logs).
+- La corrida todo `-Os` reproduce la de la sección anterior (cuadro 600 a los 93,0 s en las dos).
+- [INFER] La ganancia es mayor hasta el cuadro 180 (sin saltos de idle) que después, cuando el
+  idle-skip ya quita la mayor parte de los ciclos y pesa más el código que no es `DcMemory`.
+

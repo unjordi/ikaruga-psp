@@ -1,11 +1,13 @@
 # Links ikaruga.elf from dream-recomp's core (patched copy in $(RT)), the translated units in
 # $(GEN), our host stubs and main.cpp. Driven by scripts/build-psp-ikaruga.sh, run from the
-# variant's output directory:  make -f /repo/psp/ikaruga/Makefile RT=... GEN=... OPT=-O2
+# variant's output directory:  make -f /repo/psp/ikaruga/Makefile RT=... GEN=... OPT_RT=-O2 OPT_GEN=-Os
 RT    ?= ../src
 GEN   ?= /gen
 HERE  := $(dir $(lastword $(MAKEFILE_LIST)))
 STUBS := $(HERE)../stubs
-OPT   ?= -O2
+# OPT_RT: runtime, stubs and main.cpp. OPT_GEN: the translated units (the bulk of the image).
+OPT_RT  ?= -O2
+OPT_GEN ?= -Os
 
 RT_SRCS := \
   runtime/src/fenv.cpp runtime/src/sh4/abi_bare.cpp runtime/src/sh4/fsca.cpp \
@@ -35,7 +37,7 @@ PSP_LARGE_MEMORY = 1
 INCDIR = $(RT)/runtime/include $(RT)/render/include $(STUBS) $(GEN)
 # -ffp-contract=off -frounding-math: dream-recomp's ADR 16 (cmake/DreamTargetDefaults.cmake).
 # Exceptions stay on: rte() unwinds guest frames with a thrown NonLocalReturn.
-CFLAGS   = $(OPT) -G0 -ffp-contract=off -frounding-math -DDREAM_NO_CHD
+CFLAGS   = -G0 -ffp-contract=off -frounding-math -DDREAM_NO_CHD
 CXXFLAGS = -std=gnu++20
 LDFLAGS  = -Wl,-Map,ikaruga.map
 LIBS     = -lstdc++ -lpsppower -lpspdisplay -lpsprtc
@@ -45,7 +47,7 @@ include $(PSPSDK)/lib/build.mak
 
 obj/rt/%.o: $(RT)/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(OPT_RT) $(CXXFLAGS) -c $< -o $@
 
 # -mno-explicit-relocs: with %hi/%lo pairs psp-as does not finish on the 45 MB generated unit
 # (timings in docs/tamano-psp.md §4).
@@ -53,12 +55,12 @@ GEN_FLAGS := -mno-explicit-relocs
 
 obj/gen/%.o: $(GEN)/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(GEN_FLAGS) -c $< -o $@
+	$(CXX) $(OPT_GEN) $(CXXFLAGS) $(GEN_FLAGS) -c $< -o $@
 
 obj/host/main.o: $(HERE)main.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(OPT_RT) $(CXXFLAGS) -c $< -o $@
 
 obj/host/%.o: $(STUBS)/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(OPT_RT) $(CXXFLAGS) -c $< -o $@
