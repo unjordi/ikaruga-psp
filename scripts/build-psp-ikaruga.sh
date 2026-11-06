@@ -5,6 +5,7 @@
 #   scripts/build-psp-ikaruga.sh <dir-gen>             -O2 (ikaruga.elf) and -Os (ikaruga-Os.elf,
 #                                                       EBOOT.PBP)
 #   scripts/build-psp-ikaruga.sh <dir-gen> --solo-o2   only the -O2 variant
+#   scripts/build-psp-ikaruga.sh <dir-gen> --solo-os   only the -Os variant (EBOOT.PBP)
 #   scripts/build-psp-ikaruga.sh <dir-gen> --limpio    drop previous objects first
 # <dir-gen> is read-only mounted and never copied into the repository.
 set -euo pipefail
@@ -19,12 +20,13 @@ for arg in "$@"; do
   case "$arg" in
     --limpio) limpio=1 ;;
     --solo-o2) variants=(O2) ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    --solo-os) variants=(Os) ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     -*) echo "unknown argument: $arg" >&2; exit 2 ;;
     *) gen="$arg" ;;
   esac
 done
-[[ -n "$gen" ]] || { sed -n '2,8p' "$0" >&2; exit 2; }
+[[ -n "$gen" ]] || { sed -n '2,9p' "$0" >&2; exit 2; }
 gen="$(cd "$gen" && pwd)"
 compgen -G "$gen/*.cpp" >/dev/null || { echo "$gen: no .cpp files" >&2; exit 1; }
 command -v docker >/dev/null || { echo "docker not found" >&2; exit 1; }
@@ -61,7 +63,7 @@ for v in "${variants[@]}"; do
   test -s "$dir/ikaruga.elf" || { echo "$dir/ikaruga.elf was not produced" >&2; exit 1; }
 done
 
-cp "$OUT/O2/ikaruga.elf" "$OUT/ikaruga.elf"
+[[ -s "$OUT/O2/ikaruga.elf" ]] && cp "$OUT/O2/ikaruga.elf" "$OUT/ikaruga.elf"
 if [[ -s "$OUT/Os/ikaruga.elf" ]]; then
   cp "$OUT/Os/ikaruga.elf" "$OUT/ikaruga-Os.elf"
   test -s "$OUT/Os/EBOOT.PBP" || { echo "$OUT/Os/EBOOT.PBP was not produced" >&2; exit 1; }
@@ -75,5 +77,5 @@ for v in "${variants[@]}"; do
       {t=$4; printf "variant %s: %s\n  image %.2f MB + guest 28.1 MB = %.2f MB of ~52 MB\n",
         v, $0, t/1048576, t/1048576+28.1}'
 done
-echo "$OUT/ikaruga.elf"
+[[ -s "$OUT/ikaruga.elf" ]] && echo "$OUT/ikaruga.elf"
 [[ -s "$OUT/EBOOT.PBP" ]] && echo "$OUT/EBOOT.PBP (-Os)"
