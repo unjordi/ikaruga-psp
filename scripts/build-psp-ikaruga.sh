@@ -2,7 +2,8 @@
 # Builds build/psp/ikaruga/ikaruga.elf from dream-recomp's core (third_party/dream-recomp plus
 # patches/dream-recomp/*.patch, applied to a copy), the translated C++ in <dir-gen>, and the host
 # stubs in psp/stubs, inside the pinned PSPDEV toolchain image (scripts/psp/Dockerfile).
-#   scripts/build-psp-ikaruga.sh <dir-gen>             -O2 (ikaruga.elf) and -Os (ikaruga-Os.elf)
+#   scripts/build-psp-ikaruga.sh <dir-gen>             -O2 (ikaruga.elf) and -Os (ikaruga-Os.elf,
+#                                                       EBOOT.PBP)
 #   scripts/build-psp-ikaruga.sh <dir-gen> --solo-o2   only the -O2 variant
 #   scripts/build-psp-ikaruga.sh <dir-gen> --limpio    drop previous objects first
 # <dir-gen> is read-only mounted and never copied into the repository.
@@ -50,16 +51,22 @@ for v in "${variants[@]}"; do
   mkdir -p "$dir"
   echo "== -$v -> $dir"
   # The patched sources are rebuilt from scratch every run: drop runtime objects so they follow.
-  rm -rf "$dir/obj/rt" "$dir/obj/host"
+  rm -rf "$dir/obj/rt" "$dir/obj/host" "$dir/EBOOT.PBP" "$dir/PARAM.SFO"
+  targets=(ikaruga.elf)
+  [[ $v == Os ]] && targets+=(EBOOT.PBP)
   docker run --rm --user "$(id -u):$(id -g)" \
     --volume "$REPO:/repo:ro" --volume "$OUT/src:/rt:ro" --volume "$gen:/gen:ro" \
     --volume "$dir:/work" --workdir /work "$IMAGE" \
-    make -j"$jobs" -f /repo/psp/ikaruga/Makefile RT=/rt GEN=/gen OPT=-"$v" ikaruga.elf
+    make -j"$jobs" -f /repo/psp/ikaruga/Makefile RT=/rt GEN=/gen OPT=-"$v" "${targets[@]}"
   test -s "$dir/ikaruga.elf" || { echo "$dir/ikaruga.elf was not produced" >&2; exit 1; }
 done
 
 cp "$OUT/O2/ikaruga.elf" "$OUT/ikaruga.elf"
-[[ -s "$OUT/Os/ikaruga.elf" ]] && cp "$OUT/Os/ikaruga.elf" "$OUT/ikaruga-Os.elf"
+if [[ -s "$OUT/Os/ikaruga.elf" ]]; then
+  cp "$OUT/Os/ikaruga.elf" "$OUT/ikaruga-Os.elf"
+  test -s "$OUT/Os/EBOOT.PBP" || { echo "$OUT/Os/EBOOT.PBP was not produced" >&2; exit 1; }
+  cp "$OUT/Os/EBOOT.PBP" "$OUT/EBOOT.PBP"
+fi
 
 # Sizes against the ~52 MB a PSP-2000/3000 leaves to a 64 MB homebrew (docs/diseno-psp.md §2).
 for v in "${variants[@]}"; do
@@ -69,3 +76,4 @@ for v in "${variants[@]}"; do
         v, $0, t/1048576, t/1048576+28.1}'
 done
 echo "$OUT/ikaruga.elf"
+[[ -s "$OUT/EBOOT.PBP" ]] && echo "$OUT/EBOOT.PBP (-Os)"
