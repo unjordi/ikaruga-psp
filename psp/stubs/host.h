@@ -17,6 +17,9 @@ namespace ikaruga::host {
 struct VideoStats {
     std::uint32_t drawn = 0;    // strips sent to the GE
     std::uint32_t blended = 0;  // of those, translucent
+    std::uint32_t list_bytes = 0;  // GE display list used by the render, of list_capacity
+    std::uint32_t list_capacity = 0;
+    std::uint32_t dropped = 0;  // strips not drawn because the display list was full
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.

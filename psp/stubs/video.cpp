@@ -29,6 +29,7 @@ constexpr float kScaleX = 480.0f / 640.0f, kScaleY = 272.0f / 480.0f;
 
 // One display list per render: a handful of commands per strip.
 alignas(64) std::uint32_t g_list[256 * 1024];
+constexpr int kStripListBytes = 256;
 
 // GU_COLOR_8888 | GU_VERTEX_32BITF: colour first, then x, y, z.
 struct GeVertex {
@@ -174,6 +175,13 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
     sceGuAlphaFunc(GU_GEQUAL, static_cast<int>(ref), 0xFF);
     if (g_enabled) {
         for (const Item& item : items) {
+            // Room for one strip's state and draw plus the closing commands; the rest of the
+            // render is dropped rather than written past the end of g_list.
+            if (sceGuCheckList() + kStripListBytes > static_cast<int>(sizeof g_list)) {
+                stats.dropped = static_cast<std::uint32_t>(&item - items.data());
+                stats.dropped = static_cast<std::uint32_t>(items.size()) - stats.dropped;
+                break;
+            }
             const auto& p = *item.poly;
             sceGuDepthFunc(ge_depth_func(isp_depth_mode(p.isp)));
             // GE depth mask: true disables writes. Translucent surfaces test but do not write.
@@ -210,6 +218,8 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
     sceGuDisable(GU_BLEND);
     sceGuDisable(GU_ALPHA_TEST);
     sceGuDepthMask(GU_FALSE);
+    stats.list_bytes = static_cast<std::uint32_t>(sceGuCheckList());
+    stats.list_capacity = sizeof g_list;
     sceGuFinish();
     sceGuSync(GU_SYNC_FINISH, GU_SYNC_WHAT_DONE);
     sceGuSwapBuffers();

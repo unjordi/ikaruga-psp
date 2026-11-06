@@ -296,12 +296,13 @@ int main() {
         if (cfg.capture_at && f >= cfg.capture_at) {
             log_line("render: frame %" PRIu64 " render %" PRIu64 " words %zu polygons %zu "
                 "opaque %zu punch %zu translucent %zu vertices %zu background %d drawn %" PRIu32
-                " blended %" PRIu32,
+                " blended %" PRIu32 " ge_list_bytes %" PRIu32 " of %" PRIu32 " dropped %" PRIu32,
                 f, renders, stream.size(), polygons,
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Opaque)].size(),
                 frame.lists[static_cast<unsigned>(dream::render::ListType::PunchThrough)].size(),
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
-                frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended);
+                frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
+                st.list_bytes, st.list_capacity, st.dropped);
             if (cfg.dump_ta) {
                 char ta[64];
                 std::snprintf(ta, sizeof ta, "ta-%" PRIu64 ".bin", cfg.capture_at);
