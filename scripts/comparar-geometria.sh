@@ -8,8 +8,9 @@
 # and rtc_semilla=1 (and dibujar=0 with --sin-dibujo); the EBOOT writes captura-N.raw (480x272 RGB888) and quits.
 # PC: ikaruga_boot --window --rtc-seed 1 --press <P> --screenshot-at N, scaled to 480x272; and a
 # headless run with --dump-ta-at-frame N whose stream is decoded by contar-poligonos.
-# Each image: background = its most common colour; mask = pixels farther than 24 (max channel)
-# from it. Passes (exit 0) when the PSP mask covers > 20 % of the screen, IoU(PSP, PC) >= 0.6 and
+# Each image: background = the clear colour both renderers use (black); mask = pixels with any
+# channel above 24. Untextured, the PSP draws textured polygons in their vertex colour (often
+# white), so the most common colour of its capture can be geometry, not background. Passes (exit 0) when the PSP mask covers > 20 % of the screen, IoU(PSP, PC) >= 0.6 and
 # the polygon counts are equal; exit 1 otherwise.
 # --reusar keeps an existing PSP capture/log and PC screenshot/stream in DIR.
 # Default DIR: build/psp/evidencia/geometria-N[-sin-dibujo]. Default N: 2600.
@@ -80,11 +81,10 @@ if [[ $reusar -eq 0 || ! -s "$PC_PPM" || ! -s "$PC_TA" ]]; then
   work="$(mktemp -d "$OUT/.pc-XXXXXX")"
   ( cd "$work"
     WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
-      timeout 600 "$BOOT" --config "$TOML" --vmu v.vmu --window --rtc-seed 1 --no-audio \
+      timeout 600 "$BOOT" --config "$TOML" --window --rtc-seed 1 --no-audio \
       --press "$PRESSES" --screenshot-at "$cuadro" --max-frames $(( cuadro + 10 )) > "$OUT/pc-window.log" 2>&1
     mv screenshot-000.ppm "$PC_PPM"
-    rm -f v.vmu
-    timeout 600 "$BOOT" --config "$TOML" --vmu v.vmu --rtc-seed 1 --no-audio --press "$PRESSES" \
+    timeout 600 "$BOOT" --config "$TOML" --rtc-seed 1 --no-audio --press "$PRESSES" \
       --dump-ta "$PC_TA" --dump-ta-at-frame "$cuadro" --max-frames $(( cuadro + 10 )) \
       > "$OUT/pc-dump.log" 2>&1 )
   rm -rf "$work"
@@ -111,11 +111,12 @@ from PIL import Image
 psp_png, pc_ppm, out, frame, psp_polys, pc_polys = sys.argv[1:]
 THRESHOLD = 24
 
+BACKGROUND = (0, 0, 0)
+
 def mask(im):
     px = list(im.convert("RGB").getdata())
-    bg = Counter(px).most_common(1)[0][0]
-    m = [max(abs(a - b) for a, b in zip(p, bg)) > THRESHOLD for p in px]
-    return bg, m
+    m = [max(abs(a - b) for a, b in zip(p, BACKGROUND)) > THRESHOLD for p in px]
+    return Counter(px).most_common(1)[0][0], m
 
 psp = Image.open(psp_png).convert("RGB")
 pc = Image.open(pc_ppm).convert("RGB").resize((480, 272), Image.BILINEAR)
@@ -132,9 +133,11 @@ colours = len(set(psp.getdata()))
 for name, m in (("psp", m_psp), ("pc", m_pc)):
     Image.frombytes("L", (480, 272), bytes(255 if v else 0 for v in m)).save(f"{out}/mascara-{name}-{frame}.png")
 print(f"frame {frame}")
-print(f"psp: background {bg_psp} geometry {cover_psp:.4f} of the screen, {colours} colours")
-print(f"pc:  background {bg_pc} geometry {cover_pc:.4f} of the screen")
+print(f"background {BACKGROUND}, threshold {THRESHOLD}")
+print(f"psp: most common {bg_psp} geometry {cover_psp:.4f} of the screen, {colours} colours")
+print(f"pc:  most common {bg_pc} geometry {cover_pc:.4f} of the screen")
 print(f"iou {iou:.4f} (intersection {inter}, union {union})")
+print(f"pc geometry also in psp {inter / max(1, sum(m_pc)):.4f}; psp geometry also in pc {inter / max(1, sum(m_psp)):.4f}")
 print(f"polygons psp {psp_polys} pc {pc_polys}")
 fails = []
 if cover_psp <= 0.20:
