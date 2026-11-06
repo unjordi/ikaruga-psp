@@ -1,17 +1,23 @@
-// PSP entry point: wires dream-recomp's core the way runtime/boot/boot_main.cpp does, with every
-// host service routed through psp/stubs/host.h.
+// PSP entry point: wires dream-recomp's core the way runtime/boot/boot_main.cpp does, headless,
+// with every host service routed through psp/stubs/host.h. The run has no end of its own: every
+// kLogEvery guest frames it appends one line to kLog until the emulator or console is stopped.
 #include <pspkernel.h>
 
+#include <cinttypes>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <exception>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "dream/runtime/aica/aica.h"
 #include "dream/runtime/aica/rtc.h"
+#include "dream/runtime/gdrom/disc.h"
 #include "dream/runtime/hle/bios.h"
 #include "dream/runtime/hle/flash.h"
 #include "dream/runtime/holly/g2dma.h"
@@ -25,36 +31,84 @@
 #include "host.h"
 
 PSP_MODULE_INFO("ikaruga", PSP_MODULE_USER, 0, 1);
+// The guest's call chain runs on this thread's stack, so it gets a large one, and the VFPU.
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU);
-PSP_HEAP_SIZE_KB(-1);
+PSP_MAIN_THREAD_STACK_SIZE_KB(4096);
+// Everything else that is free goes to the heap (the guest's 16 MB RAM, 8 MB VRAM, 2 MB sound RAM
+// live there), minus a margin for the kernel's own allocations on our behalf.
+PSP_HEAP_SIZE_KB(-1024);
 
 namespace {
 
 constexpr std::uint32_t kEntry = 0x8C010000u;        // games/ikaruga/ikaruga.toml: entry
 constexpr std::uint32_t kLoadAddress = 0x8C010000u;  // games/ikaruga/ikaruga.toml: load_address
-constexpr const char* kProgram = "ms0:/PSP/GAME/IKARUGA/1ST_READ.BIN";
+constexpr const char* kDir = "ms0:/PSP/GAME/IKARUGA/";
+constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
+constexpr double kGuestHz = 200e6;                    // SH-4 clock the guest cycles count
+
+std::string path_in_dir(const char* name) { return std::string(kDir) + name; }
+
+void log_line(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+void log_line(const char* fmt, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = std::vsnprintf(buf, sizeof buf - 1, fmt, ap);
+    va_end(ap);
+    if (n < 0)
+        return;
+    if (n > static_cast<int>(sizeof buf) - 2)
+        n = sizeof buf - 2;
+    buf[n++] = '\n';
+    ikaruga::host::file_append(path_in_dir("ikaruga.log").c_str(), buf,
+        static_cast<std::uint32_t>(n));
+}
+
+int quit(int rc) {
+    sceKernelExitGame();
+    return rc;
+}
 
 }  // namespace
 
 int main() {
     using namespace ikaruga;
+    const std::string log_path = path_in_dir("ikaruga.log");
+    host::file_write(log_path.c_str(), nullptr, 0);
     host::process_init();
     host::video_init();
     host::audio_init(44100);
+    log_line("ikaruga-psp: headless boot, log every %" PRIu64 " guest frames", kLogEvery);
 
+    const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
-    if (!host::file_read(kProgram, program))
-        std::printf("%s: not read\n", kProgram);
+    if (!host::file_read(program_path.c_str(), program) || program.empty()) {
+        log_line("error: cannot read %s; copy the game's 1ST_READ.BIN there", program_path.c_str());
+        return quit(2);
+    }
+    const std::uint32_t offset = kLoadAddress & (dream::mem::DcMemory::kRamSize - 1);
+    if (program.size() > dream::mem::DcMemory::kRamSize - offset) {
+        log_line("error: %s is %zu bytes, larger than guest RAM", program_path.c_str(),
+            program.size());
+        return quit(2);
+    }
+
+    const std::string disc_path = path_in_dir("DISCO.ISO");
+    std::string err;
+    std::unique_ptr<dream::gdrom::Disc> disc = host::disc_open(disc_path.c_str(), err);
+    if (!disc) {
+        log_line("error: disc: %s; build it with scripts/preparar-disco-ikaruga.sh", err.c_str());
+        return quit(2);
+    }
 
     dream::System sys;
     dream::hle::Bios bios(sys);
+    bios.attach_disc(disc.get());
     const auto region = dream::hle::Region::Japan;
     bios.set_locale(dream::hle::Language::English, region, dream::hle::broadcast_for(region));
     sys.install();
     bios.setup_boot(kEntry);
-    const std::uint32_t offset = kLoadAddress & (dream::mem::DcMemory::kRamSize - 1);
-    if (program.size() <= dream::mem::DcMemory::kRamSize - offset)
-        std::memcpy(sys.memory.ram() + offset, program.data(), program.size());
+    std::memcpy(sys.memory.ram() + offset, program.data(), program.size());
 
     dream::pvr::Core pvr(sys.sched, sys.holly, sys.spg, sys.memory);
     sys.memory.map_mmio(dream::pvr::Core::kRegBase, dream::pvr::Core::kRegEnd, &pvr);
@@ -71,26 +125,64 @@ int main() {
     sys.memory.map_mmio(0x005F7400u, 0x005F7500u, &g1);
     sys.memory.map_mmio(dream::holly::G2Dma::kBase, dream::holly::G2Dma::kEnd, &g2);
     sys.memory.map_mmio(0x005F7C00u, 0x005F7D00u, &pvrdma);
+    // SH-4 on-chip modules the BIOS and the game touch; plain registers as on PC, the serial port
+    // included (its output is not kept).
+    dream::mem::RegisterFile bsc(0xFF800000u, 0x50 / 4), ubc(0xFF200000u, 0x24 / 4),
+        cpg(0xFFC00000u, 0x10 / 4), sh4rtc(0xFFC80000u, 0x40 / 4), scif(0xFFE80000u, 0x28 / 4);
+    dream::mem::NullRegion cache_arrays;
+    sys.memory.map_p4(0xF0000000u, 0xF6000000u, &cache_arrays);
+    sys.memory.map_p4(0xFF800000u, 0xFF800050u, &bsc);
+    sys.memory.map_p4(0xFF200000u, 0xFF200024u, &ubc);
+    sys.memory.map_p4(0xFFC00000u, 0xFFC00010u, &cpg);
+    sys.memory.map_p4(0xFFC80000u, 0xFFC80040u, &sh4rtc);
+    sys.memory.map_p4(0xFFE80000u, 0xFFE80028u, &scif);
 
     dream::maple::Bus maple(sys.sched, sys.holly, sys.memory);
     auto pad = std::make_unique<dream::maple::Controller>();
-    host::input_poll(pad->state);
+    dream::maple::Controller* pad_ptr = pad.get();
+    // Row 9: the memory card image on ms0:, or a blank card when there is none.
+    auto card = std::make_unique<dream::maple::MemoryCard>();
+    if (!host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
+        log_line("memory card: none on ms0:, using a blank one in memory");
+    maple.attach_expansion(0, 0, std::move(card));
     maple.attach(0, std::move(pad));
     sys.memory.map_mmio(dream::maple::Bus::kBase, dream::maple::Bus::kEnd, &maple);
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    dream::aica::Rtc rtc(static_cast<std::uint32_t>(host::clock_us() / 1000000u) +
-                         dream::aica::Rtc::kUnixEpochOffset);
+    dream::aica::Rtc rtc(static_cast<std::uint32_t>(std::time(nullptr)) +
+        dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
 
+    const std::uint64_t t0 = host::clock_us();
+    auto report = [&](const char* what) {
+        const double host_s = static_cast<double>(host::clock_us() - t0) / 1e6;
+        const double guest_s = static_cast<double>(sys.ctx.cycles) / kGuestHz;
+        log_line("%s frames %" PRIu64 " cycles %" PRIu64 " guest_s %.3f host_s %.3f speed %.4f "
+            "pc 0x%08" PRIx32,
+            what, sys.spg.frames(), sys.ctx.cycles, guest_s, host_s,
+            host_s > 0 ? guest_s / host_s : 0.0, sys.ctx.pc);
+    };
+    sys.spg.on_vblank_out = [&] {
+        host::input_poll(pad_ptr->state);
+        maple.vblank();
+        if (sys.spg.frames() % kLogEvery == 0)
+            report("tick");
+    };
+
+    log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
+        program.size(), kLoadAddress, disc->tracks().back().sectors);
     int rc = 0;
     try {
         dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
+        report("stop: guest returned");
     } catch (const std::exception& e) {
-        std::printf("fault: %s\n", e.what());
+        log_line("fault: %s", e.what());
+        report("stop: fault");
+        rc = 1;
+    } catch (...) {
+        report("stop: unknown exception");
         rc = 1;
     }
-    sceKernelExitGame();
-    return rc;
+    return quit(rc);
 }
