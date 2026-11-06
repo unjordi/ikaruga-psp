@@ -172,7 +172,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
         const std::uint32_t tsp = p.tsp;
         bool force_opaque_vertex = false;
         float us = 0.0f, vs = 0.0f;
-        if (pcw_texture(p.pcw)) {
+        if (g_enabled && pcw_texture(p.pcw)) {
             const bool tiles = dream::render::polygon_tiles(frame, p);
             const bool clamp_u = dream::render::tsp_clamp_u(tsp) || !tiles;
             const bool clamp_v = dream::render::tsp_clamp_v(tsp) || !tiles;
@@ -306,6 +306,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height) {
     if (!g_ready)
         return false;
+    // The copy needs ~1 MB of heap, which the texture cache may be holding: the render on screen
+    // is finished, so its textures can go.
+    texcache_release_all();
     static std::vector<std::uint32_t> copy;
     copy.assign(static_cast<std::size_t>(kStride) * kHeight + 16, 0);
     auto* dst = reinterpret_cast<std::uint32_t*>(
