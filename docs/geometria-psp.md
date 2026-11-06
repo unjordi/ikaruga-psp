@@ -34,17 +34,20 @@
 - `scripts/probar-ikaruga-ppsspp.sh`: `PROBAR_CFG`, sale en cuanto el EBOOT termina y copia
   `captura-*.raw`/`ta-*.bin`. `scripts/build-psp-ikaruga.sh --solo-os`.
 
-EBOOT medido: sha256 `9d94e2b960898639e751ac51864602eb952876f7d9418e10b0a008cdb5ef926d` (con idle-skip),
-`scripts/build-psp-ikaruga.sh <dr-rev>/build-rel/games/ikaruga/gen --solo-os`; imagen -Os
-14,68 MB + guest 28,1 MB = 42,78 MB de ~52 MB (sube 1,0 MB sobre la fila 5a: libpspgu y la lista).
+EBOOT medido: variante mix (runtime, stubs y `main.cpp` a -O2; generado a -Os), sha256
+`fe4638c2e01ec5acea8ac4549a12126fef9080ba016b5eb273d0040f080653c2`, con idle-skip:
+`scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen --limpio` (4 min 23 s);
+imagen 14,79 MB + guest 28,1 MB = 42,89 MB de ~52 MB. La -Os de la misma corrida
+(`EBOOT-Os.PBP`): 14,70 MB + 28,1 MB = 42,80 MB.
 
 Variables: `E=build/psp/ikaruga/EBOOT.PBP G=<dr-rev>/games/ikaruga/extracted
-B=<dr-rev>/build-rel/games/ikaruga/ikaruga_boot C=<dr-rev>/games/ikaruga/ikaruga.toml`.
+B=<dr-rev>/build-rel/games/ikaruga/ikaruga_boot C=<dr-rev>/games/ikaruga/ikaruga.toml`
+(la corrida mix tomó los cuatro de `<dr-idle>`, con `DREAM_RECOMP=<dr-idle>` para `contar-poligonos`).
 
 ## Resultado en el cuadro 2600
 
 ```sh
-scripts/test-psp-geometria.sh $E $G $B $C          # ~16 min con idle-skip; --reusar repite sólo la comparación
+scripts/test-psp-geometria.sh $E $G $B $C          # ~15 min con idle-skip (mix); --reusar repite sólo la comparación
 ```
 
 | | PSP (PPSSPP) | PC |
@@ -90,7 +93,13 @@ texturizados, y la IoU daba 0,1188 (`comparar-geometria.sh … --reusar` con esa
 | cuadro 1140 | 0,0323x | 0,20 ms |
 | juego, cuadro 2580 | 0,0238x | 7,49 ms (6,72 ms con `dibujar=0`) |
 
-- Con idle-skip (C++ de `dr-idle/build-rel/games/ikaruga/gen`): **904 s de reloj** con dibujo y
+- Con idle-skip y la variante mix (C++ de `dr-idle/build-rel/games/ikaruga/gen`): **837 s de
+  reloj** con dibujo y 835 s con `dibujar=0`, las dos en paralelo (`psp-tiempo.txt`); la prueba
+  entera, 14 min 45 s. Velocidad acumulada 0,1118x al cuadro 420, 0,1442x al 1140, 0,0525x al
+  2580 y 0,0524x al 2600 (`host_s` 827,6 para 43,4 s del guest; 2 813 878 saltos de espera,
+  6 076 744 960 ciclos saltados); `on_render` medio 5,67 ms con dibujo y 4,87 ms sin dibujo al
+  cuadro 2580. Resultado igual al de la tabla: IoU 0,6068, 947 polígonos en los dos lados.
+- Con idle-skip y todo a -Os: **904 s de reloj** con dibujo y
   902 s con `dibujar=0`, las dos en paralelo (`psp-tiempo.txt`); velocidad acumulada 0,0484x al
   cuadro 2600 y 7,50 ms de `on_render` medio. Las filas de arriba y lo que sigue son sin idle-skip.
 - Llegar al cuadro 2600 sin idle-skip: **1828 s de reloj** en la corrida con `dibujar=0`
