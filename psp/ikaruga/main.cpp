@@ -1,6 +1,7 @@
 // PSP entry point: wires dream-recomp's core the way runtime/boot/boot_main.cpp does, headless,
 // with every host service routed through psp/stubs/host.h. The run has no end of its own: every
 // kLogEvery guest frames it appends one line to kLog until the emulator or console is stopped.
+#include <malloc.h>
 #include <pspkernel.h>
 #include <psppower.h>
 
@@ -32,6 +33,7 @@
 #include "dream/runtime/sh4/dmac.h"
 #include "dream/runtime/system.h"
 #include "host.h"
+#include "texture_psp.h"
 
 PSP_MODULE_INFO("ikaruga", PSP_MODULE_USER, 0, 1);
 // The guest's call chain runs on this thread's stack, so it gets a large one, and the VFPU.
@@ -106,6 +108,8 @@ void log_line(const char* fmt, ...) {
 //   trazar=1          log every strip of the captured render
 //   profundidad=0     draw with the depth test off
 //   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
+//   texturas=0        draw textured polygons in their vertex colour only
+//   texturas_kb=N     cap of the texture cache in KB (default 4096)
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -117,6 +121,8 @@ struct Config {
     bool trace = false;
     bool depth = true;
     bool dump_ta = false;
+    bool textures = true;
+    std::uint32_t texture_kb = 4096;
 };
 
 std::string trimmed(const std::string& s) {
@@ -171,10 +177,33 @@ Config read_config() {
             cfg.trace = value != "0";
         else if (key == "dibujar")
             cfg.draw = value != "0";
+        else if (key == "texturas")
+            cfg.textures = value != "0";
+        else if (key == "texturas_kb")
+            cfg.texture_kb = static_cast<std::uint32_t>(number());
     }
     if (cfg.hash_every == 0)
         cfg.hash_every = kLogEvery;
     return cfg;
+}
+
+// Free RAM: what the heap has not handed out (inside the arena plus the largest block still
+// obtainable, probed by allocating), and the kernel's free user memory outside the heap.
+void log_memory(const char* tag) {
+    const struct mallinfo mi = mallinfo();
+    std::size_t lo = 0, hi = 64u << 20;
+    while (hi - lo > 16 * 1024) {
+        const std::size_t mid = lo + (hi - lo) / 2;
+        if (void* p = std::malloc(mid)) {
+            std::free(p);
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    log_line("%s: heap arena %d in_use %d free_in_arena %d largest_block_kb %zu "
+        "kernel_free_kb %u", tag, mi.arena, mi.uordblks, mi.fordblks, lo / 1024,
+        static_cast<unsigned>(sceKernelTotalFreeMemSize() / 1024));
 }
 
 // The AICA clock advances one second every 200M guest cycles, scheduled as the PC launcher does.
@@ -285,10 +314,11 @@ int main(int argc, char** argv) {
     const Config cfg = read_config();
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
+    host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
-        "rtc_seed %" PRIu32, cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0,
-        cfg.rtc_seed);
+        "rtc_seed %" PRIu32 " texturas %d texturas_kb %" PRIu32, cfg.capture_at, cfg.max_frames,
+        presses, cfg.draw ? 1 : 0, cfg.rtc_seed, cfg.textures ? 1 : 0, cfg.texture_kb);
 
     const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
@@ -408,6 +438,9 @@ int main(int argc, char** argv) {
         const bool background = dream::render::add_background(frame, pvr.reg_block(),
             sys.memory.vram(), dream::mem::DcMemory::kVramSize);
         const float alpha_ref = static_cast<float>(pvr.reg(0x11C) & 0xFFu) / 255.0f;
+        // Palette memory is at +0x1000 of the register block, its format in PAL_RAM_CTRL.
+        host::texcache_begin_frame(sys.memory.vram(), dream::mem::DcMemory::kVramSize,
+            pvr.reg_block() + 0x1000 / 4, pvr.reg(0x108) & 3u);
         const bool last = cfg.capture_at && sys.spg.frames() >= cfg.capture_at;
         if (last && cfg.trace)
             host::video_set_trace(&log_line);
@@ -426,6 +459,15 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
+            const host::TextureCacheStats ts = host::texcache_stats();
+            log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32
+                " peak %" PRIu32 " budget %" PRIu32 " decoded %" PRIu32 " invalidated %" PRIu32
+                " evicted %" PRIu32 " failed %" PRIu32 " over_budget %" PRIu32 " hash_ms %.1f"
+                " decode_ms %.1f", st.textured, ts.entries, ts.bytes, ts.peak_bytes, ts.budget,
+                ts.decoded, ts.invalidated, ts.evicted, ts.failed, ts.over_budget,
+                ts.hash_us / 1000.0, ts.decode_us / 1000.0);
+            host::texcache_describe(&log_line);
+            log_memory("memory");
             if (cfg.dump_ta) {
                 char ta[64];
                 std::snprintf(ta, sizeof ta, "ta-%" PRIu64 ".bin", cfg.capture_at);
