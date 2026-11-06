@@ -61,7 +61,7 @@ void log_line(const char* fmt, ...) {
         n = sizeof buf - 2;
     buf[n++] = '\n';
     ikaruga::host::file_append(path_in_dir("ikaruga.log").c_str(), buf,
-                               static_cast<std::uint32_t>(n));
+        static_cast<std::uint32_t>(n));
 }
 
 int quit(int rc) {
@@ -89,7 +89,7 @@ int main() {
     const std::uint32_t offset = kLoadAddress & (dream::mem::DcMemory::kRamSize - 1);
     if (program.size() > dream::mem::DcMemory::kRamSize - offset) {
         log_line("error: %s is %zu bytes, larger than guest RAM", program_path.c_str(),
-                 program.size());
+            program.size());
         return quit(2);
     }
 
@@ -151,7 +151,7 @@ int main() {
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
     dream::aica::Rtc rtc(static_cast<std::uint32_t>(std::time(nullptr)) +
-                         dream::aica::Rtc::kUnixEpochOffset);
+        dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
 
     const std::uint64_t t0 = host::clock_us();
@@ -159,9 +159,9 @@ int main() {
         const double host_s = static_cast<double>(host::clock_us() - t0) / 1e6;
         const double guest_s = static_cast<double>(sys.ctx.cycles) / kGuestHz;
         log_line("%s frames %" PRIu64 " cycles %" PRIu64 " guest_s %.3f host_s %.3f speed %.4f "
-                 "pc 0x%08" PRIx32,
-                 what, sys.spg.frames(), sys.ctx.cycles, guest_s, host_s,
-                 host_s > 0 ? guest_s / host_s : 0.0, sys.ctx.pc);
+            "pc 0x%08" PRIx32,
+            what, sys.spg.frames(), sys.ctx.cycles, guest_s, host_s,
+            host_s > 0 ? guest_s / host_s : 0.0, sys.ctx.pc);
     };
     sys.spg.on_vblank_out = [&] {
         host::input_poll(pad_ptr->state);
@@ -171,7 +171,7 @@ int main() {
     };
 
     log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
-             program.size(), kLoadAddress, disc->tracks().back().sectors);
+        program.size(), kLoadAddress, disc->tracks().back().sectors);
     int rc = 0;
     try {
         dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
