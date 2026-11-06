@@ -38,7 +38,17 @@ bool file_read(const char* path, std::vector<std::uint8_t>& out);
 bool file_write(const char* path, const std::uint8_t* data, std::uint32_t size);
 bool file_append(const char* path, const char* text, std::uint32_t size);
 
-// Row 13: CPU clock.
+// Row 13: CPU clock; HOME and power callbacks.
 void process_init();
+void power_init();
+bool exit_requested();
+// Times the console came back from suspend; descriptors opened before the last one are invalid.
+unsigned resume_count();
+// What the power callback does with its PSP_POWER_CB_* flags (called directly by tests).
+void power_event(int flags);
+// Test hook: notifies the registered exit callback as HOME -> Exit does.
+void test_request_exit();
+// Test hook for row 8: closes the disc's descriptor as a suspend does, keeping the stale number.
+void disc_lose_handle(dream::gdrom::Disc& disc);
 
 }  // namespace ikaruga::host

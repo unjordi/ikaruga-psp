@@ -2,6 +2,7 @@
 // with every host service routed through psp/stubs/host.h. The run has no end of its own: every
 // kLogEvery guest frames it appends one line to kLog until the emulator or console is stopped.
 #include <pspkernel.h>
+#include <psppower.h>
 
 #include <cinttypes>
 #include <cstdarg>
@@ -164,6 +165,31 @@ void start_write_log(dream::System& sys, std::uint64_t from, std::uint64_t count
     };
 }
 
+struct ExitRequested {};
+
+// Debug keys of ikaruga.cfg: test_exit_at = frame notifies the exit callback (as HOME -> Exit);
+// test_suspend_at = frame runs a suspend and resume: the power events, with the disc's descriptor
+// closed in between as the kernel does.
+void test_hooks(std::uint64_t frame, std::uint32_t exit_at, std::uint32_t suspend_at,
+    dream::gdrom::Disc& disc) {
+    if (exit_at && frame == exit_at) {
+        log_line("test: exit callback at frame %" PRIu64, frame);
+        ikaruga::host::test_request_exit();
+    }
+    if (suspend_at && frame == suspend_at) {
+        log_line("test: suspend and resume at frame %" PRIu64, frame);
+        ikaruga::host::power_event(PSP_POWER_CB_SUSPENDING);
+        ikaruga::host::disc_lose_handle(disc);
+        ikaruga::host::power_event(PSP_POWER_CB_RESUME_COMPLETE);
+    }
+}
+
+// Between guest frames: leave run_guest when HOME -> Exit was chosen.
+void check_exit() {
+    if (ikaruga::host::exit_requested())
+        throw ExitRequested{};
+}
+
 int quit(int rc) {
     sceKernelExitGame();
     return rc;
@@ -177,6 +203,7 @@ int main(int argc, char** argv) {
     const std::string log_path = path_in_dir("ikaruga.log");
     host::file_write(log_path.c_str(), nullptr, 0);
     host::process_init();
+    host::power_init();
     host::video_init();
     host::audio_init(44100);
     log_line("ikaruga-psp: headless boot, log every %" PRIu64 " guest frames", kLogEvery);
@@ -273,9 +300,13 @@ int main(int argc, char** argv) {
             what, sys.spg.frames(), sys.ctx.cycles, guest_s, host_s,
             host_s > 0 ? guest_s / host_s : 0.0, sys.ctx.pc);
     };
+    const std::uint32_t test_exit_at = cfg_number("test_exit_at", 0);
+    const std::uint32_t test_suspend_at = cfg_number("test_suspend_at", 0);
     sys.spg.on_vblank_out = [&] {
         host::input_poll(pad_ptr->state);
         maple.vblank();
+        test_hooks(sys.spg.frames(), test_exit_at, test_suspend_at, *disc);
+        check_exit();
         if (sys.spg.frames() % kLogEvery == 0)
             report("tick");
     };
@@ -286,6 +317,8 @@ int main(int argc, char** argv) {
     try {
         dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
         report("stop: guest returned");
+    } catch (const ExitRequested&) {
+        report("stop: exit requested");
     } catch (const std::exception& e) {
         log_line("fault: %s", e.what());
         report("stop: fault");

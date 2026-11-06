@@ -6,7 +6,9 @@
 #   scripts/test-psp-igual-pc.sh <EBOOT.PBP> <dir-juego-extraido> [segundos (default 330)]
 # Env: DREAM_RECOMP=<dream-recomp checkout with build-rel/games/ikaruga/ikaruga_boot>
 #      (default third_party/dream-recomp); HASTA=<last frame> (default 600);
-#      RTC_SEED=<n> (default 1; the PSP gets it through ikaruga.cfg).
+#      RTC_SEED=<n> (default 1; the PSP gets it through ikaruga.cfg);
+#      PROBAR_CFG_EXTRA=<file> more ikaruga.cfg lines for the PSP run (debug keys);
+#      IGUAL_OUT=<dir> instead of build/psp/evidencia/igual-pc.
 # Logs: build/psp/evidencia/igual-pc/{pc-hash.txt,psp.log}.
 set -euo pipefail
 
@@ -17,7 +19,7 @@ DR="$(realpath "${DREAM_RECOMP:-$REPO/third_party/dream-recomp}")"
 HASTA="${HASTA:-600}" SEED="${RTC_SEED:-1}"
 BOOT="$DR/build-rel/games/ikaruga/ikaruga_boot"
 CFG="$DR/games/ikaruga/ikaruga.toml"
-OUT="$REPO/build/psp/evidencia/igual-pc"
+OUT="${IGUAL_OUT:-$REPO/build/psp/evidencia/igual-pc}"
 [[ -x "$BOOT" ]] || { echo "no PC launcher at $BOOT (see docs/reproducir-pc.md)" >&2; exit 1; }
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -29,6 +31,7 @@ echo "== PC: $HASTA frames, --rtc-seed $SEED"
 
 echo "== PSP: $SEGUNDOS s in PPSSPP, rtc_seed = $SEED"
 printf 'rtc_seed = %s\n' "$SEED" >"$OUT/ikaruga.cfg"
+[[ -n "${PROBAR_CFG_EXTRA:-}" ]] && grep -v '^rtc_seed' "$PROBAR_CFG_EXTRA" >>"$OUT/ikaruga.cfg"
 PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
   "$SEGUNDOS" "$OUT/psp.log" >/dev/null 2>"$OUT/probar.err" || true
 [[ -s "$OUT/psp.log" ]] || { echo "FAIL: the EBOOT wrote no log" >&2; exit 1; }
