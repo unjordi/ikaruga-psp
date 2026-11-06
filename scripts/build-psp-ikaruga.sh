@@ -7,14 +7,16 @@
 #   mix  OPT_RT=-O2 OPT_GEN=-Os  default: build/psp/ikaruga/ikaruga.elf and EBOOT.PBP
 #   Os   OPT_RT=-Os OPT_GEN=-Os  build/psp/ikaruga/ikaruga-Os.elf and EBOOT-Os.PBP
 #   O2   OPT_RT=-O2 OPT_GEN=-O2  build/psp/ikaruga/ikaruga-O2.elf (no EBOOT: does not fit in 64 MB)
-# Default --variantes=mix,Os; --solo-o2 is --variantes=O2; --limpio drops previous objects first.
+# Default --variantes=mix,Os; --solo-o2 is --variantes=O2; --solo-os is --variantes=Os (then EBOOT.PBP is the -Os
+# one); --limpio drops previous objects first.
 # OPT_RT / OPT_GEN in the environment override the flags of the mix variant.
+# Env: DREAM_RECOMP=<dream-recomp checkout> instead of third_party/dream-recomp.
 # <dir-gen> is read-only mounted and never copied into the repository.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="ikaruga-psp-toolchain:v20261001"
-DR="$REPO/third_party/dream-recomp"
+DR="${DREAM_RECOMP:-$REPO/third_party/dream-recomp}"
 OUT="$REPO/build/psp/ikaruga"
 USAGE_LINES='2,12p'
 
@@ -24,6 +26,7 @@ for arg in "$@"; do
     --limpio) limpio=1 ;;
     --solo-o2) variants=(O2) ;;
     --variantes=*) IFS=, read -r -a variants <<< "${arg#--variantes=}" ;;
+    --solo-os) variants=(Os) ;;
     -h|--help) sed -n "$USAGE_LINES" "$0"; exit 0 ;;
     -*) echo "unknown argument: $arg" >&2; exit 2 ;;
     *) gen="$arg" ;;
@@ -92,6 +95,7 @@ for v in "${variants[@]}"; do
     O2)  cp "$OUT/O2/ikaruga.elf" "$OUT/ikaruga-O2.elf" ;;
   esac
 done
+if [[ " ${variants[*]} " != *" mix "* && -s "$OUT/EBOOT-Os.PBP" ]]; then cp "$OUT/EBOOT-Os.PBP" "$OUT/EBOOT.PBP"; fi
 
 # Sizes against the ~52 MB a PSP-2000/3000 leaves to a 64 MB homebrew (docs/diseno-psp.md §2).
 for v in "${variants[@]}"; do

@@ -1,5 +1,5 @@
---- a/runtime/src/fenv.cpp	2026-11-05 22:56:22.459642490 -0600
-+++ b/runtime/src/fenv.cpp	2026-11-05 22:56:58.908092553 -0600
+--- a/runtime/src/fenv.cpp
++++ b/runtime/src/fenv.cpp
 @@ -10,6 +10,8 @@
  #if defined(_MSC_VER)
  #include <intrin.h>
@@ -9,7 +9,7 @@
  #else
  #error "dream::fenv: unsupported host ISA (need x86-64 or ARM64)"
  #endif
-@@ -65,6 +67,25 @@
+@@ -65,18 +67,60 @@
  bool get_flush() noexcept {
      return (read_fpcr() & kFpcrFz) != 0;
  }
@@ -32,6 +32,44 @@
 +bool get_flush() noexcept {
 +    return (read_fcsr() & kFcsrFs) != 0;
 +}
++
++// FCSR bits 1:0 (RM): 0 round to nearest, 1 toward zero. newlib-psp's fesetround is a stub that
++// returns an error without touching the FPU, so the field is written here directly.
++constexpr unsigned kFcsrRm = 3u;
++constexpr unsigned kFcsrRmNearest = 0u;
++constexpr unsigned kFcsrRmZero = 1u;
++
++void set_rounding(Rounding r) noexcept {
++    unsigned v = read_fcsr() & ~kFcsrRm;
++    v |= r == Rounding::Nearest ? kFcsrRmNearest : kFcsrRmZero;
++    asm volatile("ctc1 %0, $31" : : "r"(v));
++}
++
++Rounding get_rounding() noexcept {
++    return (read_fcsr() & kFcsrRm) == kFcsrRmZero ? Rounding::TowardZero : Rounding::Nearest;
++}
++#else
++void set_rounding(Rounding r) noexcept {
++    std::fesetround(r == Rounding::Nearest ? FE_TONEAREST : FE_TOWARDZERO);
++}
++
++Rounding get_rounding() noexcept {
++    return std::fegetround() == FE_TOWARDZERO ? Rounding::TowardZero : Rounding::Nearest;
++}
  #endif
  
  }  // namespace
+ 
+ void apply(Mode mode) noexcept {
+-    std::fesetround(mode.rounding == Rounding::Nearest ? FE_TONEAREST : FE_TOWARDZERO);
++    set_rounding(mode.rounding);
+     set_flush(mode.flush_denormals);
+ }
+ 
+ Mode current() noexcept {
+-    return Mode{std::fegetround() == FE_TOWARDZERO ? Rounding::TowardZero : Rounding::Nearest,
+-                get_flush()};
++    return Mode{get_rounding(), get_flush()};
+ }
+ 
+ void reset_host() noexcept {

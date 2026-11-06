@@ -23,6 +23,7 @@ public:
 
     bool open(const char* path, std::string& error) {
         path_ = path;
+        resumes_ = resume_count();
         fd_ = sceIoOpen(path, PSP_O_RDONLY, 0);
         if (fd_ < 0) {
             error = std::string("cannot open ") + path;
@@ -65,6 +66,8 @@ public:
             std::memset(out, 0, t->sector_size);
             return true;
         }
+        if (resumes_ != resume_count() && !reopen())
+            return false;
         const SceOff at = static_cast<SceOff>(lba - t->lba) * dream::gdrom::kUserBytes;
         if (at != pos_ && sceIoLseek(fd_, at, PSP_SEEK_SET) != at)
             return false;
@@ -77,12 +80,27 @@ public:
         return true;
     }
 
+    void lose_handle() { sceIoClose(fd_); }
+
+    // After a suspend the old descriptor is dead: open the image again by path.
+    bool reopen() {
+        resumes_ = resume_count();
+        if (fd_ >= 0)
+            sceIoClose(fd_);
+        pos_ = -1;
+        fd_ = sceIoOpen(path_.c_str(), PSP_O_RDONLY, 0);
+        return fd_ >= 0;
+    }
+
 private:
     SceUID fd_ = -1;
     SceOff pos_ = -1;
+    unsigned resumes_ = 0;
 };
 
 }  // namespace
+
+void disc_lose_handle(dream::gdrom::Disc& disc) { static_cast<Ms0Disc&>(disc).lose_handle(); }
 
 std::unique_ptr<dream::gdrom::Disc> disc_open(const char* path, std::string& error) {
     auto d = std::make_unique<Ms0Disc>();

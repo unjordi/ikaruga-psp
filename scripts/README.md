@@ -9,3 +9,9 @@
 - `preparar-disco-ikaruga.sh <dir-extraido> <DISCO.ISO>`: ISO 9660 image of the extracted disc's game area (sectors numbered from LBA 45000, IP.BIN in the system area) that the PSP build reads as the GD-ROM. Needs: genisoimage or mkisofs.
 - `probar-ikaruga-ppsspp.sh <EBOOT.PBP> <dir-juego-extraido|-> <segundos> [salida.log]`: runs the headless EBOOT in PPSSPP on a temporary memory stick with the game data, for the given seconds, and copies `ms0:/PSP/GAME/IKARUGA/ikaruga.log`. Needs: flatpak `org.ppsspp.PPSSPP`, xvfb-run, genisoimage.
 - `test-psp-arranque.sh <EBOOT.PBP> <dir-juego-extraido> [segundos]`: acceptance test: without 1ST_READ.BIN the log has a clear error; with the game the guest frames advance and its PC changes.
+- `test-psp-redondeo.sh [dir-parches]`: builds psp/pruebas/redondeo against the patched runtime and checks in PPSSPP that toward-zero truncates 1/3 and nearest rounds it up (FCSR.RM).
+- `test-psp-rtc.sh <EBOOT.PBP> <dir-juego-extraido> [segundos]`: `rtc_seed = 1000` in ikaruga.cfg gives the expected AICA RTC at frame 60.
+- `test-psp-igual-pc.sh <EBOOT.PBP> <dir-juego-extraido> [segundos]`: PC <-> PSP oracle: compares `write_hash` at frames 60..600 (no input, RTC seed 1) and fails at the first different frame. Needs `DREAM_RECOMP` with the PC launcher built and `PROBAR_DISCO` with the real disc's HD area (`tools/volcar-area-hd.cpp`).
+- `test-psp-salida-suspension.sh <EBOOT.PBP> <dir-juego-extraido>`: HOME exit callback and a simulated suspend/resume (debug keys of ikaruga.cfg); after the resume the hash must still equal PC's.
+- `test-psp-carpeta.sh <EBOOT.PBP> <dir-juego-extraido> [segundos]`: the EBOOT runs from `ms0:/PSP/GAME/OTRA_CARPETA/`.
+- `test-psp-vmu.sh <EBOOT.PBP> <dir-juego-extraido> [segundos]`: two runs; the first saves VMU.BIN, the second reads it.

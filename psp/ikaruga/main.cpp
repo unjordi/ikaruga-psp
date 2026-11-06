@@ -2,13 +2,14 @@
 // with every host service routed through psp/stubs/host.h. The run has no end of its own: every
 // kLogEvery guest frames it appends one line to kLog until the emulator or console is stopped.
 #include <pspkernel.h>
+#include <psppower.h>
 
 #include <cinttypes>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <exception>
 #include <memory>
 #include <string>
@@ -42,20 +43,34 @@ namespace {
 
 constexpr std::uint32_t kEntry = 0x8C010000u;        // games/ikaruga/ikaruga.toml: entry
 constexpr std::uint32_t kLoadAddress = 0x8C010000u;  // games/ikaruga/ikaruga.toml: load_address
+constexpr const char* kDefaultDir = "ms0:/PSP/GAME/IKARUGA/";
 constexpr std::uint32_t kLinkAddress = 0x0C010000u;  // games/ikaruga/ikaruga.toml: link_address
 // games/ikaruga/ikaruga.toml [idle]: wait-loop head -> kind (docs/idle-skip.md). A file named
-// kNoIdleSkip in kDir leaves the table empty, as --no-idle-skip does on PC.
+// kNoIdleSkip in the game folder leaves the table empty, as --no-idle-skip does on PC.
 struct IdleEntry {
     std::uint32_t addr;
     const char* kind;
 };
 constexpr IdleEntry kIdle[] = {{0x0C0370BAu, "katana_wait_vblank"}};
 constexpr const char* kNoIdleSkip = "NO_IDLE_SKIP";
-constexpr const char* kDir = "ms0:/PSP/GAME/IKARUGA/";
 constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
 constexpr double kGuestHz = 200e6;                    // SH-4 clock the guest cycles count
 
-std::string path_in_dir(const char* name) { return std::string(kDir) + name; }
+std::string g_dir = kDefaultDir;
+
+// The folder the EBOOT was started from (argv[0] is its full path, e.g.
+// ms0:/PSP/GAME/OTHER/EBOOT.PBP or ef0:/...), with its trailing slash.
+std::string game_dir(int argc, char** argv) {
+    if (argc < 1 || !argv || !argv[0])
+        return kDefaultDir;
+    const std::string self = argv[0];
+    const std::size_t slash = self.find_last_of('/');
+    if (slash == std::string::npos || self.find(':') == std::string::npos)
+        return kDefaultDir;
+    return self.substr(0, slash + 1);
+}
+
+std::string path_in_dir(const char* name) { return g_dir + name; }
 
 void log_line(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void log_line(const char* fmt, ...) {
@@ -73,6 +88,117 @@ void log_line(const char* fmt, ...) {
         static_cast<std::uint32_t>(n));
 }
 
+// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' comments. Returns the numeric value of
+// `wanted`, or `fallback` without the file or the key.
+std::uint32_t cfg_number(const char* wanted, std::uint32_t fallback) {
+    std::vector<std::uint8_t> raw;
+    std::uint32_t seed = fallback;
+    if (!ikaruga::host::file_read(path_in_dir("ikaruga.cfg").c_str(), raw))
+        return seed;
+    std::string text(raw.begin(), raw.end());
+    std::size_t at = 0;
+    while (at < text.size()) {
+        std::size_t end = text.find('\n', at);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string line = text.substr(at, end - at);
+        at = end + 1;
+        line = line.substr(0, line.find('#'));
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+        std::string key = line.substr(0, eq);
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t\r") + 1);
+        if (key == wanted)
+            seed = static_cast<std::uint32_t>(std::strtoul(line.c_str() + eq + 1, nullptr, 0));
+    }
+    return seed;
+}
+
+// The AICA clock advances one second every 200M guest cycles, scheduled as the PC launcher does.
+void start_rtc_tick(dream::System& sys, dream::aica::Rtc& rtc) {
+    auto id = std::make_shared<int>(-1);
+    *id = sys.sched.add("rtc", [&sys, &rtc, id](std::uint64_t, std::uint64_t) {
+        rtc.tick();
+        sys.sched.request(*id, 200'000'000ull);
+    });
+    sys.sched.request(*id, 200'000'000ull);
+}
+
+// Oracle against PC: the rolling hash of guest stores that the PC launcher's --write-hash prints,
+// sampled the same way (first scanline of each new frame, from a scheduler event with the period
+// of a scanline), logged every `every` frames as "hash <frame> <cycles> <hash> <writes> rtc <s>".
+void start_write_hash(dream::System& sys, const dream::aica::Rtc& rtc, std::uint64_t every) {
+    sys.memory.hash_writes = true;
+    auto id = std::make_shared<int>(-1);
+    auto hashed_frame = std::make_shared<std::uint64_t>(~0ull);
+    const std::uint64_t period = sys.spg.line_cycles();
+    *id = sys.sched.add("write-hash",
+        [&sys, &rtc, id, hashed_frame, period, every](std::uint64_t now, std::uint64_t) {
+        const std::uint64_t f = sys.spg.frames();
+        if (f != *hashed_frame) {
+            *hashed_frame = f;
+            if (f % every == 0)
+                log_line("hash %" PRIu64 " %" PRIu64 " %016" PRIx64 " %" PRIu64 " rtc %" PRIu32, f,
+                    now, sys.memory.write_hash, sys.memory.writes_hashed, rtc.seconds());
+        }
+        sys.sched.request(*id, period);
+    });
+    sys.sched.request(*id, period);
+}
+
+// Debug aid for a divergence from PC: guest stores with index in [log_from, log_from+log_count)
+// go to writes.log in the PC launcher's --write-log format, so the two can be diffed line by line.
+void start_write_log(dream::System& sys, std::uint64_t from, std::uint64_t count) {
+    if (count == 0)
+        return;
+    auto buf = std::make_shared<std::string>();
+    const std::string path = path_in_dir("writes.log");
+    ikaruga::host::file_write(path.c_str(), nullptr, 0);
+    sys.memory.log_from = from;
+    sys.memory.log_to = from + count;
+    sys.memory.on_hashed_write = [&sys, buf, path, last = from + count - 1](std::uint64_t index,
+        std::uint32_t addr, std::uint64_t value, unsigned size) {
+        char line[96];
+        const int n = std::snprintf(line, sizeof line,
+            "%llu %08lx %u %016llx pc %08lx pr %08lx\n", static_cast<unsigned long long>(index),
+            static_cast<unsigned long>(addr), size, static_cast<unsigned long long>(value),
+            static_cast<unsigned long>(sys.ctx.pc), static_cast<unsigned long>(sys.ctx.pr));
+        buf->append(line, n);
+        if (buf->size() > 60000 || index == last) {
+            ikaruga::host::file_append(path.c_str(), buf->data(),
+                static_cast<std::uint32_t>(buf->size()));
+            buf->clear();
+        }
+    };
+}
+
+struct ExitRequested {};
+
+// Debug keys of ikaruga.cfg: test_exit_at = frame notifies the exit callback (as HOME -> Exit);
+// test_suspend_at = frame runs a suspend and resume: the power events, with the disc's descriptor
+// closed in between as the kernel does.
+void test_hooks(std::uint64_t frame, std::uint32_t exit_at, std::uint32_t suspend_at,
+    dream::gdrom::Disc& disc) {
+    if (exit_at && frame == exit_at) {
+        log_line("test: exit callback at frame %" PRIu64, frame);
+        ikaruga::host::test_request_exit();
+    }
+    if (suspend_at && frame == suspend_at) {
+        log_line("test: suspend and resume at frame %" PRIu64, frame);
+        ikaruga::host::power_event(PSP_POWER_CB_SUSPENDING);
+        ikaruga::host::disc_lose_handle(disc);
+        ikaruga::host::power_event(PSP_POWER_CB_RESUME_COMPLETE);
+    }
+}
+
+// Between guest frames: leave run_guest when HOME -> Exit was chosen.
+void check_exit() {
+    if (ikaruga::host::exit_requested())
+        throw ExitRequested{};
+}
+
 int quit(int rc) {
     sceKernelExitGame();
     return rc;
@@ -80,11 +206,13 @@ int quit(int rc) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     using namespace ikaruga;
+    g_dir = game_dir(argc, argv);
     const std::string log_path = path_in_dir("ikaruga.log");
     host::file_write(log_path.c_str(), nullptr, 0);
     host::process_init();
+    host::power_init();
     host::video_init();
     host::audio_init(44100);
     log_line("ikaruga-psp: headless boot, log every %" PRIu64 " guest frames", kLogEvery);
@@ -166,17 +294,26 @@ int main() {
     dream::maple::Controller* pad_ptr = pad.get();
     // Row 9: the memory card image on ms0:, or a blank card when there is none.
     auto card = std::make_unique<dream::maple::MemoryCard>();
-    if (!host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
-        log_line("memory card: none on ms0:, using a blank one in memory");
+    if (host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
+        log_line("memory card: read VMU.BIN");
+    else
+        log_line("memory card: no VMU.BIN, formatted a blank one (saved on the first write)");
     maple.attach_expansion(0, 0, std::move(card));
     maple.attach(0, std::move(pad));
     sys.memory.map_mmio(dream::maple::Bus::kBase, dream::maple::Bus::kEnd, &maple);
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    dream::aica::Rtc rtc(static_cast<std::uint32_t>(std::time(nullptr)) +
-        dream::aica::Rtc::kUnixEpochOffset);
+    // rtc_seed: the console clock in seconds since 1970, as the PC launcher's --rtc-seed.
+    const std::uint32_t rtc_seed = cfg_number("rtc_seed", 1);
+    dream::aica::Rtc rtc(rtc_seed + dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
+    start_rtc_tick(sys, rtc);
+    log_line("rtc: seed %" PRIu32, rtc_seed);
+    // hash_every: frames between hash lines (1 to find the first frame that differs from PC).
+    const std::uint32_t hash_every = cfg_number("hash_every", kLogEvery);
+    start_write_hash(sys, rtc, hash_every ? hash_every : kLogEvery);
+    start_write_log(sys, cfg_number("log_from", 0), cfg_number("log_count", 0));
 
     const std::uint64_t t0 = host::clock_us();
     auto report = [&](const char* what) {
@@ -189,9 +326,13 @@ int main() {
             host_s > 0 ? guest_s / host_s : 0.0, sys.idle_skips, sys.idle_skipped_cycles,
             sys.ctx.pc);
     };
+    const std::uint32_t test_exit_at = cfg_number("test_exit_at", 0);
+    const std::uint32_t test_suspend_at = cfg_number("test_suspend_at", 0);
     sys.spg.on_vblank_out = [&] {
         host::input_poll(pad_ptr->state);
         maple.vblank();
+        test_hooks(sys.spg.frames(), test_exit_at, test_suspend_at, *disc);
+        check_exit();
         if (sys.spg.frames() % kLogEvery == 0)
             report("tick");
     };
@@ -202,6 +343,8 @@ int main() {
     try {
         dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
         report("stop: guest returned");
+    } catch (const ExitRequested&) {
+        report("stop: exit requested");
     } catch (const std::exception& e) {
         log_line("fault: %s", e.what());
         report("stop: fault");
