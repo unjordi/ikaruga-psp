@@ -16,6 +16,8 @@
 #include <utility>
 #include <vector>
 
+#include "dream/render/background.h"
+#include "dream/render/display_list.h"
 #include "dream/runtime/aica/aica.h"
 #include "dream/runtime/aica/rtc.h"
 #include "dream/runtime/gdrom/disc.h"
@@ -88,32 +90,91 @@ void log_line(const char* fmt, ...) {
         static_cast<std::uint32_t>(n));
 }
 
-// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' comments. Returns the numeric value of
-// `wanted`, or `fallback` without the file or the key.
-std::uint32_t cfg_number(const char* wanted, std::uint32_t fallback) {
+// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' starts a comment.
+//   rtc_seed=N        console clock at N seconds since 1970, as PC's --rtc-seed (default 1);
+//                     rtc_semilla is an alias
+//   hash_every=N      frames between "hash" lines (default 60; 1 finds the first frame that
+//                     differs from PC)
+//   log_from=I        with log_count=N: guest stores [I, I+N) go to writes.log
+//   test_exit_at=N    at guest frame N notify the exit callback (as HOME -> Exit)
+//   test_suspend_at=N at guest frame N run a suspend and resume
+//   capturar_en=N     after the first render at or past guest frame N is drawn, write the screen
+//                     to captura-N.raw (RGB888, top row first) and quit
+//   max_cuadros=N     quit at guest frame N
+//   pulsar=...        scripted presses, PC's --press syntax (start@700,a@1400)
+//   dibujar=0         clear and swap every frame but draw no geometry
+//   trazar=1          log every strip of the captured render
+//   profundidad=0     draw with the depth test off
+//   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
+struct Config {
+    std::uint32_t rtc_seed = 1;
+    std::uint32_t hash_every = kLogEvery;
+    std::uint64_t log_from = 0, log_count = 0;
+    std::uint32_t test_exit_at = 0, test_suspend_at = 0;
+    std::uint64_t capture_at = 0, max_frames = 0;
+    std::string presses;
+    bool draw = true;
+    bool trace = false;
+    bool depth = true;
+    bool dump_ta = false;
+};
+
+std::string trimmed(const std::string& s) {
+    const std::size_t a = s.find_first_not_of(" \t\r");
+    if (a == std::string::npos)
+        return {};
+    return s.substr(a, s.find_last_not_of(" \t\r") + 1 - a);
+}
+
+Config read_config() {
+    Config cfg;
     std::vector<std::uint8_t> raw;
-    std::uint32_t seed = fallback;
     if (!ikaruga::host::file_read(path_in_dir("ikaruga.cfg").c_str(), raw))
-        return seed;
+        return cfg;
     std::string text(raw.begin(), raw.end());
-    std::size_t at = 0;
-    while (at < text.size()) {
-        std::size_t end = text.find('\n', at);
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t end = text.find('\n', pos);
         if (end == std::string::npos)
             end = text.size();
-        std::string line = text.substr(at, end - at);
-        at = end + 1;
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
         line = line.substr(0, line.find('#'));
         const std::size_t eq = line.find('=');
         if (eq == std::string::npos)
             continue;
-        std::string key = line.substr(0, eq);
-        key.erase(0, key.find_first_not_of(" \t"));
-        key.erase(key.find_last_not_of(" \t\r") + 1);
-        if (key == wanted)
-            seed = static_cast<std::uint32_t>(std::strtoul(line.c_str() + eq + 1, nullptr, 0));
+        const std::string key = trimmed(line.substr(0, eq)), value = trimmed(line.substr(eq + 1));
+        const auto number = [&value] { return std::strtoull(value.c_str(), nullptr, 0); };
+        if (key == "rtc_seed" || key == "rtc_semilla")
+            cfg.rtc_seed = static_cast<std::uint32_t>(number());
+        else if (key == "hash_every")
+            cfg.hash_every = static_cast<std::uint32_t>(number());
+        else if (key == "log_from")
+            cfg.log_from = number();
+        else if (key == "log_count")
+            cfg.log_count = number();
+        else if (key == "test_exit_at")
+            cfg.test_exit_at = static_cast<std::uint32_t>(number());
+        else if (key == "test_suspend_at")
+            cfg.test_suspend_at = static_cast<std::uint32_t>(number());
+        else if (key == "capturar_en")
+            cfg.capture_at = number();
+        else if (key == "max_cuadros")
+            cfg.max_frames = number();
+        else if (key == "pulsar")
+            cfg.presses = value;
+        else if (key == "volcar_ta")
+            cfg.dump_ta = value != "0";
+        else if (key == "profundidad")
+            cfg.depth = value != "0";
+        else if (key == "trazar")
+            cfg.trace = value != "0";
+        else if (key == "dibujar")
+            cfg.draw = value != "0";
     }
-    return seed;
+    if (cfg.hash_every == 0)
+        cfg.hash_every = kLogEvery;
+    return cfg;
 }
 
 // The AICA clock advances one second every 200M guest cycles, scheduled as the PC launcher does.
@@ -199,6 +260,11 @@ void check_exit() {
         throw ExitRequested{};
 }
 
+// Ends run_guest from inside a hook.
+struct StopRun {
+    const char* why;
+};
+
 int quit(int rc) {
     sceKernelExitGame();
     return rc;
@@ -215,7 +281,14 @@ int main(int argc, char** argv) {
     host::power_init();
     host::video_init();
     host::audio_init(44100);
-    log_line("ikaruga-psp: headless boot, log every %" PRIu64 " guest frames", kLogEvery);
+    log_line("ikaruga-psp: log every %" PRIu64 " guest frames", kLogEvery);
+    const Config cfg = read_config();
+    host::video_set_drawing(cfg.draw);
+    host::video_set_depth_test(cfg.depth);
+    const std::size_t presses = host::input_script(cfg.presses);
+    log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
+        "rtc_seed %" PRIu32, cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0,
+        cfg.rtc_seed);
 
     const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
@@ -304,16 +377,12 @@ int main(int argc, char** argv) {
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    // rtc_seed: the console clock in seconds since 1970, as the PC launcher's --rtc-seed.
-    const std::uint32_t rtc_seed = cfg_number("rtc_seed", 1);
-    dream::aica::Rtc rtc(rtc_seed + dream::aica::Rtc::kUnixEpochOffset);
+    dream::aica::Rtc rtc(cfg.rtc_seed + dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
     start_rtc_tick(sys, rtc);
-    log_line("rtc: seed %" PRIu32, rtc_seed);
-    // hash_every: frames between hash lines (1 to find the first frame that differs from PC).
-    const std::uint32_t hash_every = cfg_number("hash_every", kLogEvery);
-    start_write_hash(sys, rtc, hash_every ? hash_every : kLogEvery);
-    start_write_log(sys, cfg_number("log_from", 0), cfg_number("log_count", 0));
+    log_line("rtc: seed %" PRIu32, cfg.rtc_seed);
+    start_write_hash(sys, rtc, cfg.hash_every);
+    start_write_log(sys, cfg.log_from, cfg.log_count);
 
     const std::uint64_t t0 = host::clock_us();
     auto report = [&](const char* what) {
@@ -326,15 +395,71 @@ int main(int argc, char** argv) {
             host_s > 0 ? guest_s / host_s : 0.0, sys.idle_skips, sys.idle_skipped_cycles,
             sys.ctx.pc);
     };
-    const std::uint32_t test_exit_at = cfg_number("test_exit_at", 0);
-    const std::uint32_t test_suspend_at = cfg_number("test_suspend_at", 0);
+    // Rows 1-4: every render the guest starts is decoded and drawn. The polygon count is the
+    // decoded stream's, before the background plane is added, so it matches the PC launcher's.
+    dream::render::DisplayList decoder;
+    std::uint64_t renders = 0, draw_us = 0;
+    pvr.on_render = [&](const std::vector<std::uint32_t>& stream) {
+        const std::uint64_t r0 = host::clock_us();
+        decoder.reset();
+        decoder.feed_stream(stream.data(), stream.size());
+        dream::render::Frame& frame = decoder.frame();
+        const std::size_t polygons = frame.polygon_count();
+        const bool background = dream::render::add_background(frame, pvr.reg_block(),
+            sys.memory.vram(), dream::mem::DcMemory::kVramSize);
+        const float alpha_ref = static_cast<float>(pvr.reg(0x11C) & 0xFFu) / 255.0f;
+        const bool last = cfg.capture_at && sys.spg.frames() >= cfg.capture_at;
+        if (last && cfg.trace)
+            host::video_set_trace(&log_line);
+        const host::VideoStats st = host::video_draw_frame(frame, alpha_ref);
+        host::video_set_trace(nullptr);
+        draw_us += host::clock_us() - r0;
+        ++renders;
+        const std::uint64_t f = sys.spg.frames();
+        if (cfg.capture_at && f >= cfg.capture_at) {
+            log_line("render: frame %" PRIu64 " render %" PRIu64 " words %zu polygons %zu "
+                "opaque %zu punch %zu translucent %zu vertices %zu background %d drawn %" PRIu32
+                " blended %" PRIu32 " ge_list_bytes %" PRIu32 " of %" PRIu32 " dropped %" PRIu32,
+                f, renders, stream.size(), polygons,
+                frame.lists[static_cast<unsigned>(dream::render::ListType::Opaque)].size(),
+                frame.lists[static_cast<unsigned>(dream::render::ListType::PunchThrough)].size(),
+                frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
+                frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
+                st.list_bytes, st.list_capacity, st.dropped);
+            if (cfg.dump_ta) {
+                char ta[64];
+                std::snprintf(ta, sizeof ta, "ta-%" PRIu64 ".bin", cfg.capture_at);
+                host::file_write(path_in_dir(ta).c_str(),
+                    reinterpret_cast<const std::uint8_t*>(stream.data()),
+                    static_cast<std::uint32_t>(stream.size() * 4));
+            }
+            std::vector<std::uint8_t> rgb;
+            unsigned w = 0, h = 0;
+            char name[64];
+            std::snprintf(name, sizeof name, "captura-%" PRIu64 ".raw", cfg.capture_at);
+            if (host::video_capture(rgb, w, h) &&
+                host::file_write(path_in_dir(name).c_str(), rgb.data(),
+                    static_cast<std::uint32_t>(rgb.size())))
+                log_line("capture: %s width %u height %u format rgb24", name, w, h);
+            else
+                log_line("capture: failed to write %s", name);
+            throw StopRun{"capture written"};
+        }
+    };
+
     sys.spg.on_vblank_out = [&] {
-        host::input_poll(pad_ptr->state);
+        const std::uint64_t f = sys.spg.frames();
+        host::input_poll(pad_ptr->state, f);
         maple.vblank();
-        test_hooks(sys.spg.frames(), test_exit_at, test_suspend_at, *disc);
+        test_hooks(f, cfg.test_exit_at, cfg.test_suspend_at, *disc);
         check_exit();
-        if (sys.spg.frames() % kLogEvery == 0)
+        if (f % kLogEvery == 0) {
             report("tick");
+            log_line("video: renders %" PRIu64 " draw_ms_per_render %.2f", renders,
+                renders ? static_cast<double>(draw_us) / 1000.0 / renders : 0.0);
+        }
+        if (cfg.max_frames && f >= cfg.max_frames)
+            throw StopRun{"max_cuadros reached"};
     };
 
     log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
@@ -345,6 +470,8 @@ int main(int argc, char** argv) {
         report("stop: guest returned");
     } catch (const ExitRequested&) {
         report("stop: exit requested");
+    } catch (const StopRun& s) {
+        report(s.why);
     } catch (const std::exception& e) {
         log_line("fault: %s", e.what());
         report("stop: fault");
