@@ -109,7 +109,7 @@ void log_line(const char* fmt, ...) {
 //   profundidad=0     draw with the depth test off
 //   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
 //   texturas=0        draw textured polygons in their vertex colour only
-//   texturas_kb=N     cap of the texture cache in KB (default 4096)
+//   texturas_kb=N     cap of the texture cache in KB (default 2048)
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -122,7 +122,7 @@ struct Config {
     bool depth = true;
     bool dump_ta = false;
     bool textures = true;
-    std::uint32_t texture_kb = 4096;
+    std::uint32_t texture_kb = 2048;
 };
 
 std::string trimmed(const std::string& s) {
@@ -501,6 +501,12 @@ int main(int argc, char** argv) {
             report("tick");
             log_line("video: renders %" PRIu64 " draw_ms_per_render %.2f", renders,
                 renders ? static_cast<double>(draw_us) / 1000.0 / renders : 0.0);
+            const host::TextureCacheStats ts = host::texcache_stats();
+            log_line("textures: entries %" PRIu32 " bytes %" PRIu32 " peak %" PRIu32
+                " decoded %" PRIu32 " invalidated %" PRIu32 " evicted %" PRIu32 " failed %" PRIu32
+                " over_budget %" PRIu32 " hash_ms %.1f decode_ms %.1f", ts.entries, ts.bytes,
+                ts.peak_bytes, ts.decoded, ts.invalidated, ts.evicted, ts.failed, ts.over_budget,
+                ts.hash_us / 1000.0, ts.decode_us / 1000.0);
         }
         if (cfg.max_frames && f >= cfg.max_frames)
             throw StopRun{"max_cuadros reached"};

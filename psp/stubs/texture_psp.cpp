@@ -22,6 +22,7 @@
 #include <pspgu.h>
 
 #include <algorithm>
+#include <new>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -50,7 +51,7 @@ struct Entry {
 };
 
 bool g_enabled = true;
-std::uint32_t g_budget = 4u << 20;
+std::uint32_t g_budget = 2u << 20;
 std::unordered_map<std::uint64_t, Entry> g_entries;
 TextureCacheStats g_stats;
 std::uint32_t g_render = 0;
@@ -149,6 +150,12 @@ bool make_room(std::uint32_t bytes) {
             return false;
         release(*oldest);
         ++g_stats.evicted;
+        // The bookkeeping goes too, so the map stays as small as the images it holds.
+        for (auto it = g_entries.begin(); it != g_entries.end(); ++it)
+            if (&it->second == oldest) {
+                g_entries.erase(it);
+                break;
+            }
     }
     return true;
 }
@@ -156,10 +163,27 @@ bool make_room(std::uint32_t bytes) {
 // Decodes, mirrors, reduces, packs and swizzles `e.info` into a new image.
 bool build(Entry& e, bool mirror_u, bool mirror_v) {
     const std::uint64_t t0 = clock_us();
+    // The decoder's RGBA8888 copy is temporary but large (2 MB for 512x1024), and the heap has
+    // little to spare: when it cannot be had, images the current render has not handed out are
+    // dropped and the decode is tried once more; failing that, the polygon draws untextured.
     std::vector<std::uint32_t> rgba;
-    if (!dream::render::decode_texture(e.info, g_vram, g_vram_size, g_palette, rgba)) {
-        ++g_stats.failed;
-        e.failed = true;
+    bool decoded = false;
+    for (int attempt = 0; attempt < 2 && !decoded; ++attempt) {
+        try {
+            if (!dream::render::decode_texture(e.info, g_vram, g_vram_size, g_palette, rgba)) {
+                ++g_stats.failed;
+                e.failed = true;
+                return false;
+            }
+            decoded = true;
+        } catch (const std::bad_alloc&) {
+            rgba = std::vector<std::uint32_t>();
+            if (attempt == 0)
+                make_room(g_budget);
+        }
+    }
+    if (!decoded) {
+        ++g_stats.over_budget;
         return false;
     }
     const int w = static_cast<int>(e.info.width), h = static_cast<int>(e.info.height);
@@ -175,7 +199,10 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         ++g_stats.over_budget;
         return false;
     }
+    rgba.shrink_to_fit();
     auto* out = static_cast<std::uint8_t*>(memalign(16, bytes));
+    if (!out && make_room(g_budget))
+        out = static_cast<std::uint8_t*>(memalign(16, bytes));
     if (!out) {
         ++g_stats.over_budget;
         return false;
@@ -293,6 +320,11 @@ const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_
     if (!e.memory && !build(e, mirror_u, mirror_v))
         return nullptr;
     return &e.tex;
+}
+
+void texcache_release_all() {
+    for (auto& [key, e] : g_entries) release(e);
+    g_entries.clear();
 }
 
 TextureCacheStats texcache_stats() {

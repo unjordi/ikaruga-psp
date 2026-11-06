@@ -46,6 +46,8 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
                           const std::uint32_t* palette_ram, unsigned palette_format);
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v);
 TextureCacheStats texcache_stats();
+// Frees every cached image (the GE must be done with them); the next render decodes again.
+void texcache_release_all();
 // One line per cached image: source description, GE format, size and bytes.
 void texcache_describe(void (*log)(const char*, ...));
 
