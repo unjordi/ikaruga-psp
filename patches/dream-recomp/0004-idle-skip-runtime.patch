@@ -1,0 +1,169 @@
+Runtime half of patches/dream-recomp-pc/0001-idle-skip-for-declared-wait-loops.patch:
+idle_poll -> Hooks::on_idle -> System::on_idle, System::idle_loops, device_accesses.
+The translator half and boot_main.cpp stay in the PC patch.
+
+diff --git a/runtime/include/dream/runtime/sh4/abi.h b/runtime/include/dream/runtime/sh4/abi.h
+index 0837731..fe268de 100644
+--- a/runtime/include/dream/runtime/sh4/abi.h
++++ b/runtime/include/dream/runtime/sh4/abi.h
+@@ -70,6 +70,9 @@ void run_guest(Ctx& c, ::dream::Memory& m, GuestFn entry);
+ 
+ // Exceptions and interrupts. Emitted code calls deliver_irq when `c.cycles >= c.next_event`.
+ void deliver_irq(Ctx& c, ::dream::Memory& m);
++// Emitted at the head of a block the game config lists under [idle] (docs/game-config.md): a wait
++// loop the runtime may fast-forward to the next scheduler event. `pc` is the block address.
++void idle_poll(Ctx& c, ::dream::Memory& m, std::uint32_t pc);
+ void trapa(Ctx& c, ::dream::Memory& m, std::uint32_t imm);
+ // Returns true when the RTE closes a delivered exception and resumes the interrupted context (the
+ // emitted `return` then unwinds to the delivery point) and false when it is a jump: SR and PC are
+@@ -99,6 +102,8 @@ public:
+     // it. Otherwise RTE is a plain transfer to SPC with SR from SSR (Katana's startup enters the
+     // program that way); the interpreter continues there instead of returning.
+     virtual bool in_exception_frame() const noexcept { return true; }
++    // Head of a declared idle loop; the default runs the loop as translated.
++    virtual void on_idle(Ctx&, ::dream::Memory&, std::uint32_t) {}
+ };
+ void set_hooks(Hooks* hooks) noexcept;
+ Hooks* hooks() noexcept;
+diff --git a/runtime/include/dream/runtime/system.h b/runtime/include/dream/runtime/system.h
+index cdb4e69..ea92fe2 100644
+--- a/runtime/include/dream/runtime/system.h
++++ b/runtime/include/dream/runtime/system.h
+@@ -8,6 +8,7 @@
+ 
+ #include <array>
+ #include <cstdint>
++#include <map>
+ #include <stdexcept>
+ #include <string>
+ #include <utility>
+@@ -48,6 +49,7 @@ public:
+     void on_untranslated(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t target) override;
+     void on_resume(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) override;
+     bool in_exception_frame() const noexcept override { return nesting > 0; }
++    void on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) override;
+ 
+     // Delivers every interrupt SR currently lets through, most urgent first, running handlers to
+     // completion. Returns how many were delivered.
+@@ -61,8 +63,18 @@ public:
+     pvr::Spg spg;
+     sh4::Ctx ctx{};
+ 
++    // Wait loops that may be fast-forwarded ([idle] in the game config, docs/game-config.md).
++    // katana_wait_vblank: kmWaitVBlank's inner loop; @r15 points at a timeout word that each turn
++    // decrements by one, mirrored in r3 at the loop head.
++    enum class IdleKind { katana_wait_vblank };
++    std::map<std::uint32_t, IdleKind> idle_loops;  // loop head block -> kind; empty = no skipping
++    // Returns false for an unknown kind name.
++    static bool idle_kind_from_name(const std::string& name, IdleKind& kind);
++    std::uint64_t idle_skips = 0, idle_skipped_turns = 0, idle_skipped_cycles = 0;
++
+     // Diagnostics
+     std::uint64_t interrupts_delivered = 0, traps_taken = 0;
++    std::uint64_t device_accesses = 0;
+     unsigned nesting = 0, max_nesting = 0;
+     // Diagnostics for exception frames: an RTE whose SPC is not the interrupted pc is a task
+     // switch inside the handler (the guest kernel resumed a different context).
+diff --git a/runtime/src/sh4/abi_bare.cpp b/runtime/src/sh4/abi_bare.cpp
+index 7d292b7..2930c55 100644
+--- a/runtime/src/sh4/abi_bare.cpp
++++ b/runtime/src/sh4/abi_bare.cpp
+@@ -343,6 +343,11 @@ void deliver_irq(Ctx& c, ::dream::Memory& m) {
+     c.next_event = ~std::uint64_t{0};  // the bare harness never raises interrupts
+ }
+ 
++void idle_poll(Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
++    if (g_hooks)
++        g_hooks->on_idle(c, m, pc);
++}
++
+ void trapa(Ctx& c, ::dream::Memory& m, std::uint32_t imm) {
+     if (g_hooks) {
+         g_hooks->on_trapa(c, m, imm);
+diff --git a/runtime/src/system.cpp b/runtime/src/system.cpp
+index b9813e7..2102e34 100644
+--- a/runtime/src/system.cpp
++++ b/runtime/src/system.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cstring>
+ 
+ #include "dream/runtime/hle/bios.h"
+ #include "dream/runtime/sh4/ops.h"
+@@ -44,6 +45,7 @@ void System::install() {
+     // access, so timers and drive status reflect the cycles emitted code has accumulated since the
+     // last interrupt poll. Guarded because an event run here may itself touch a device.
+     memory.on_device_access = [this] {
++        ++device_accesses;
+         if (advancing_for_device || sched.now() >= ctx.cycles)
+             return;
+         advancing_for_device = true;
+@@ -126,6 +128,66 @@ void System::on_poll(sh4::Ctx& c, ::dream::Memory& m) {
+     arm_next_poll(c);
+ }
+ 
++bool System::idle_kind_from_name(const std::string& name, IdleKind& kind) {
++    if (name == "katana_wait_vblank") {
++        kind = IdleKind::katana_wait_vblank;
++        return true;
++    }
++    return false;
++}
++
++// Called at the head of a declared wait loop. A turn is skippable when the previous head was the
++// same loop, nothing was delivered, trapped or read from a device in between, and the whole
++// context matches except the cycle count and the timeout (one lower). Then the next k turns are
++// copies of it: the runtime adds k turns' cycles and lowers the timeout by k, stopping before any
++// turn that could reach next_event or end the loop on the timeout. Those turns run as translated,
++// so interrupts land at the same cycle as without skipping.
++void System::on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
++    struct Turn {
++        bool valid = false;
++        std::uint32_t pc = 0, timeout_addr = 0, timeout = 0;
++        std::uint64_t interrupts = 0, traps = 0, devices = 0;
++        sh4::Ctx ctx{};
++    };
++    static Turn prev;
++    if (idle_loops.find(pc) == idle_loops.end())
++        return;
++    const std::uint32_t timeout_addr = m.read32(c.r[15]);
++    std::uint32_t timeout = m.read32(timeout_addr);
++    if (prev.valid && prev.pc == pc && prev.timeout_addr == timeout_addr &&
++        prev.interrupts == interrupts_delivered && prev.traps == traps_taken &&
++        prev.devices == device_accesses && timeout != 0 && timeout + 1 == prev.timeout &&
++        c.r[3] == timeout && c.cycles > prev.ctx.cycles && c.next_event > c.cycles) {
++        sh4::Ctx a = prev.ctx, b = c;
++        a.cycles = b.cycles = 0;
++        a.next_event = b.next_event = 0;
++        a.r[3] = b.r[3] = 0;
++        if (!std::memcmp(&a, &b, sizeof a)) {
++            const std::uint64_t d = c.cycles - prev.ctx.cycles;
++            // The polls of a skipped turn fall at or before its end; keep them below next_event.
++            std::uint64_t k = (c.next_event - c.cycles - 1) / d;
++            k = std::min<std::uint64_t>(k, timeout - 1);
++            if (k) {
++                c.cycles += k * d;
++                timeout -= static_cast<std::uint32_t>(k);
++                m.write32(timeout_addr, timeout);
++                c.r[3] = timeout;
++                ++idle_skips;
++                idle_skipped_turns += k;
++                idle_skipped_cycles += k * d;
++            }
++        }
++    }
++    prev.valid = true;
++    prev.pc = pc;
++    prev.timeout_addr = timeout_addr;
++    prev.timeout = timeout;
++    prev.interrupts = interrupts_delivered;
++    prev.traps = traps_taken;
++    prev.devices = device_accesses;
++    prev.ctx = c;
++}
++
+ void System::on_trapa(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t imm) {
+     memory.tra = (imm & 0xFFu) << 2;
+     memory.expevt = 0x160;

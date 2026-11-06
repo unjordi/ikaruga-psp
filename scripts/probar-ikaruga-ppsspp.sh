@@ -15,6 +15,7 @@
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
 #      VMU.BIN left after it (removed if there is none).
+#      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
 # for the screenshot.
 set -euo pipefail
@@ -50,6 +51,7 @@ mkdir -p "$GAME"
 cp "$EBOOT" "$GAME/EBOOT.PBP"
 [[ -n "${PROBAR_CFG:-}" ]] && cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
 [[ -n "${PROBAR_VMU_IN:-}" ]] && cp "$PROBAR_VMU_IN" "$GAME/VMU.BIN"
+[[ "${PROBAR_SIN_IDLE:-0}" == 1 ]] && : > "$GAME/NO_IDLE_SKIP"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"
