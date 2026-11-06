@@ -38,7 +38,7 @@ INCDIR = $(RT)/runtime/include $(RT)/render/include $(STUBS) $(GEN)
 CFLAGS   = $(OPT) -G0 -ffp-contract=off -frounding-math -DDREAM_NO_CHD
 CXXFLAGS = -std=gnu++20
 LDFLAGS  = -Wl,-Map,ikaruga.map
-LIBS     = -lstdc++ -lpsppower -lpspdisplay -lpsprtc
+LIBS     = -lstdc++ -lpspgu -lpspge -lpsppower -lpspdisplay -lpsprtc
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak

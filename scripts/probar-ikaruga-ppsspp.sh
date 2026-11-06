@@ -9,6 +9,9 @@
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
+#      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT
+#      writes is copied next to <salida.log>. <segundos> is then an upper bound: the run ends as
+#      soon as the EBOOT quits.
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
 # for the screenshot.
 set -euo pipefail
@@ -48,6 +51,9 @@ if [[ "$JUEGO" != "-" ]]; then
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"
   "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
 fi
+if [[ -n "${PROBAR_CFG:-}" ]]; then
+  cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
+fi
 
 # Private PPSSPP config: the user's settings are neither used nor touched. OpenGL because Xvfb has no DRI3 for Vulkan. Speed unlimited is not set: the
 # PSP's own clock paces nothing here, the run is CPU bound.
@@ -69,7 +75,11 @@ flatpak run --filesystem="$WORK" --command=sh "$APP" -c \
   'export XDG_CONFIG_HOME="$WORK/config" XDG_DATA_HOME="$WORK/data"; exec PPSSPPSDL --windowed --xres 480 --yres 272 --log="$LOG" "$GAME/EBOOT.PBP"' \
   >"$WORK/stdout.log" 2>&1 &
 pid=$!
-sleep "$SEGUNDOS"
+t=0
+while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
+  if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
+  sleep 1; t=$((t + 1))
+done
 alive=1
 kill -0 "$pid" 2>/dev/null || alive=0
 if [ -n "$CAPTURA" ] && [ $alive -eq 1 ]; then import -window root "$RAW" || true; fi
@@ -91,5 +101,8 @@ grep -q 'E\[BOOT\]: Boot failed' "$LOG" 2>/dev/null && {
 [[ -f "$GAME/ikaruga.log" ]] || {
   echo "probar-ikaruga-ppsspp: the EBOOT wrote no ikaruga.log" >&2; exit 1; }
 cp "$GAME/ikaruga.log" "$SALIDA"
+for raw in "$GAME"/captura-*.raw "$GAME"/ta-*.bin; do
+  [[ -f "$raw" ]] && cp "$raw" "$(dirname "$SALIDA")/"
+done
 echo "PPSSPP still running at the end: $(cat "$WORK/alive" 2>/dev/null || echo ?)" >&2
 echo "$SALIDA"
