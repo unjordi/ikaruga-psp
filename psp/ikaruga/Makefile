@@ -43,7 +43,7 @@ obj/rt/%.o: $(RT)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # -mno-explicit-relocs: with %hi/%lo pairs psp-as is superlinear on a 45 MB unit (800k lines of
-# ikaruga.cpp's assembly: 7.9 s; the whole 8.1M lines: >30 min unfinished). With assembler macros
+# ikaruga.cpp's assembly: 7.9 s; the whole 8.1M lines: >26 min unfinished). With assembler macros
 # instead the whole unit assembles in 3 s.
 GEN_FLAGS := -mno-explicit-relocs
 

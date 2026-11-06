@@ -15,5 +15,8 @@ Flags instead of patches (`psp/ikaruga/Makefile`):
 - `-std=gnu++20`, `-ffp-contract=off -frounding-math` as dream-recomp's `cmake/DreamTargetDefaults.cmake`.
 - Exceptions and RTTI stay on: `sh4::rte()` unwinds guest frames by throwing `NonLocalReturn`, and
   `System` reports untranslated calls with `UntranslatedCall : std::runtime_error`.
+- `-mno-explicit-relocs`, only for the generated units: with explicit `%hi`/`%lo` relocations psp-as
+  is superlinear on the 45 MB `ikaruga.cpp` (the first 800k of 8.1M assembly lines take 7.9 s; the
+  whole file had not finished after 26 min). With assembler macros the whole unit assembles in 3 s.
 - `<filesystem>` (only `gdrom/disc.h`, `open_disc`) and `std::chrono` compile against psp-gcc 15.2's
   libstdc++ without changes; whether they work at run time on the PSP is not tested.
