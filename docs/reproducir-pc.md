@@ -104,6 +104,39 @@ sale idéntico. Compáralo así:
 
 Esperado: `095e71eaeafdd6444586606cff3f40992541c705ab7eeb7e76eb7ffa9c94333a`. CONFIRMADO: borrando `gen/` y regenerando sale el mismo hash.
 
+### 5.2 Con idle-skip (`patches/dream-recomp-pc/`)
+
+El EBOOT de la PSP con idle-skip (docs/arranque-psp.md, «Idle-skip en la PSP») usa el C++ que
+genera el traductor parchado: con la tabla `[idle]` del `ikaruga.toml` emite `idle_poll` en la
+cabeza de la espera de `kmWaitVBlank` (docs/idle-skip.md). Antes del paso 3 (o en un clon aparte),
+aplica los parches de este repo sobre el commit fijado:
+
+```sh
+git apply /ruta/a/ikaruga-psp/patches/dream-recomp-pc/*.patch
+git diff --stat      # docs, games/ikaruga/ikaruga.toml, runtime/, translator/
+```
+
+y sigue con los pasos 3–5. Si ya tenías `build-rel`, basta con
+`cmake --build build-rel --target ikaruga_boot --parallel "$(nproc)"`: [INFER] el cambio en el
+traductor y en `ikaruga.toml` regenera `gen/` (no lo probé de forma incremental; si el hash de
+abajo no sale, borra `build-rel/games/ikaruga/gen` y repite).
+
+CONFIRMADO: el parche aplicado con `patch -p1` sobre `third_party/dream-recomp` (`51ca276`) deja
+`runtime/`, `translator/`, `games/ikaruga/ikaruga.toml`, `docs/game-config.md` y
+`docs/runtime-interrupts.md` idénticos (`diff -rq`) a los de `~/code/ajenos/dr-idle`, el árbol cuyo
+`gen/` se midió.
+
+Comprobación igual que en 5.1. Esperado con el parche:
+`924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da` (CONFIRMADO sobre
+`~/code/ajenos/dr-idle/build-rel/games/ikaruga/gen` con
+`ls $G | sort | while read f; do cat "$G/$f"; done | sha256sum`). Sin el parche sigue siendo el de
+5.1.
+
+`scripts/build-psp-ikaruga.sh` no necesita este paso para el runtime: aplica su propia copia de la
+parte del runtime (`patches/dream-recomp/0004-idle-skip-runtime.patch`). Sí necesita el `gen/`
+regenerado: el C++ con `idle_poll` no enlaza contra un runtime sin 0004, y el `gen/` sin `idle_poll`
+compila pero nunca salta.
+
 ## 6. Correr
 
 Opciones del lanzador usadas (SEGÚN `RESULTADO-IKARUGA.md`):
