@@ -107,8 +107,8 @@ texturizados, y la IoU daba 0,1188 (`comparar-geometria.sh … --reusar` con esa
 eligen el mismo display (`:99`, el primero sin `/tmp/.X99-lock` al momento de mirar); la que
 termina primero mata ese Xvfb y la otra muere con `X connection to :99 broken` y
 `terminate called without an active exception` (PPSSPP sale con 134). No es el EBOOT: el
-`ikaruga.log` de la víctima se corta a media partida sin error. La corrida sin dibujo sale un
-poco antes, así que la víctima solía ser la de dibujo.
+`ikaruga.log` de la víctima se corta a media partida sin error. Cuál de las dos muere depende de
+cuál termina primero; que el revisor viera morir siempre la de dibujo no lo medí.
 
 Medido con 4 corridas cortas, dos a dos en paralelo (`build/psp/evidencia/repro-xvfb-a/`):
 con `-a`, `a1` y `a2` caen en `:100` y `a2` muere (exit 134, «run failed»); con `-d` (Xvfb
@@ -121,8 +121,8 @@ Sospechas descartadas con medición, en la corrida con dibujo al cuadro 2600:
 - Lista GE: el render capturado usa 34 668 bytes de 1 048 576 (`ge_list_bytes` en el log; 96
   con `dibujar=0`). Aun así `video_draw_frame` ahora corta el render (y cuenta `dropped`) antes
   de escribir más allá de `g_list`; en el cuadro 2600, `dropped 0`.
-- `sceGuCopyImage` y la escritura de la captura: corrida sola (sin otra en paralelo), mismo
-  EBOOT: `capture: captura-2600.raw` escrita y PPSSPP vivo al final.
+- `sceGuCopyImage` y la escritura de la captura: corrida sola (sin otra en paralelo), EBOOT
+  previo al límite de la lista (sha256 `b93d72d4…`): `capture: captura-2600.raw` escrita y PPSSPP vivo al final.
 - eDRAM: el mismo reparto de buffers sirve 2319 renders seguidos sin fallo en esa corrida.
 
 ## Determinismo
