@@ -125,8 +125,8 @@ void start_write_hash(dream::System& sys, const dream::aica::Rtc& rtc, std::uint
     auto id = std::make_shared<int>(-1);
     auto hashed_frame = std::make_shared<std::uint64_t>(~0ull);
     const std::uint64_t period = sys.spg.line_cycles();
-    *id = sys.sched.add("write-hash", [&sys, &rtc, id, hashed_frame, period, every](std::uint64_t now,
-                                                                       std::uint64_t) {
+    *id = sys.sched.add("write-hash",
+        [&sys, &rtc, id, hashed_frame, period, every](std::uint64_t now, std::uint64_t) {
         const std::uint64_t f = sys.spg.frames();
         if (f != *hashed_frame) {
             *hashed_frame = f;
