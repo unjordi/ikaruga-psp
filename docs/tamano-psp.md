@@ -1,8 +1,10 @@
 # Tamaño del `.elf` de Ikaruga para la PSP (fila 4)
 
+Revisión (2026-11-06 00:3x): build desde cero repetido en un worktree limpio; mismos tamaños byte a byte en las dos variantes (CONFIRMADO).
+
 Build: `scripts/build-psp-ikaruga.sh <dir-gen> --limpio` (desde cero: borra `build/psp/ikaruga`),
 toolchain `ikaruga-psp-toolchain:v20261001` (psp-g++ 15.2.0), dream-recomp `51ca276` + 
-`patches/dream-recomp/*.patch`, C++ generado de `~/code/ajenos/dr-rev/build-rel/games/ikaruga/gen`
+`patches/dream-recomp/*.patch`, C++ generado de `<dream-recomp>/build-rel/games/ikaruga/gen` (ver `docs/reproducir-pc.md`)
 (sha256 de la concatenación ordenada de sus archivos: `095e71eaeafdd6444586606cff3f40992541c705ab7eeb7e76eb7ffa9c94333a`,
 CONFIRMADO con `ls $G | sort | while read f; do cat "$G/$f"; done | sha256sum`).
 Los stubs de host (`psp/stubs/`) no hacen nada: el `.elf` enlaza pero no arranca el juego.
@@ -121,6 +123,4 @@ Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (`docs/diseno-psp.m
   `unordered_map` del ABI, colas de AICA/PVR): la `bss` del runtime (0,56 MB) sí está, el heap no.
 - **No medí velocidad**: -Os podría ser bastante más lento que -O2 en el bucle caliente.
 - El grupo `ltrans` (11 KB) no lo identifiqué; lo atribuyo a una lib del SDK con LTO.
-- **Evidencia**: el sandbox no me dejó escribir en `~/code/ajenos/ikaruga-tareas/fila4-evidencia/`
-  (`SANDBOX_ESCRIBE_FUERA`); los logs quedaron en `build/psp/evidencia/` del worktree y hay que
-  copiarlos a mano antes de borrarlo.
+- **Evidencia**: los logs del build quedan en `build/psp/evidencia/` (fuera de git).

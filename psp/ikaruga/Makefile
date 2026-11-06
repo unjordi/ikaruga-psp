@@ -42,9 +42,8 @@ obj/rt/%.o: $(RT)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# -mno-explicit-relocs: with %hi/%lo pairs psp-as is superlinear on a 45 MB unit (800k lines of
-# ikaruga.cpp's assembly: 7.9 s; the whole 8.1M lines: >26 min unfinished). With assembler macros
-# instead the whole unit assembles in 3 s.
+# -mno-explicit-relocs: with %hi/%lo pairs psp-as does not finish on the 45 MB generated unit
+# (timings in docs/tamano-psp.md §4).
 GEN_FLAGS := -mno-explicit-relocs
 
 obj/gen/%.o: $(GEN)/%.cpp
