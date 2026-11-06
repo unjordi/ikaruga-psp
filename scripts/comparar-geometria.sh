@@ -41,7 +41,7 @@ BOOT="$(realpath "${pos[2]}")" TOML="$(realpath "${pos[3]}")"
 sufijo=""; [[ $sin_dibujo -eq 1 ]] && sufijo="-sin-dibujo"
 OUT="$(realpath -m "${salida:-$REPO/build/psp/evidencia/geometria-$cuadro$sufijo}")"
 # PPSSPP reaches ~0.03x real time: frame N needs about N/60/0.03 s, plus margin.
-[[ -n "$segundos" ]] || segundos=$(( cuadro * 2 / 3 + 600 ))
+[[ -n "$segundos" ]] || segundos=$(( cuadro * 2 + 600 ))
 mkdir -p "$OUT"
 
 # Polygon counter for the PC stream: the submodule's decoder, built for the host.
