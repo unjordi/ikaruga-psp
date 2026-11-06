@@ -1,0 +1,41 @@
+--- a/runtime/src/gdrom/disc.cpp	2026-11-05 22:56:22.466642416 -0600
++++ b/runtime/src/gdrom/disc.cpp	2026-11-05 22:57:13.889310128 -0600
+@@ -7,7 +7,9 @@
+ #include <map>
+ #include <sstream>
+ 
++#ifndef DREAM_NO_CHD
+ #include <libchdr/chd.h>
++#endif
+ 
+ namespace dream::gdrom {
+ 
+@@ -189,6 +191,7 @@
+     std::map<unsigned, File> files_;
+ };
+ 
++#ifndef DREAM_NO_CHD
+ // ---- CHD ---------------------------------------------------------------------------------------
+ 
+ constexpr std::uint32_t kFrameBytes = 2448;  // 2352 sector + 96 subchannel
+@@ -342,6 +345,7 @@
+     std::vector<std::uint8_t> hunk_buf_;
+     std::vector<ChdTrack> layout_;
+ };
++#endif
+ 
+ // ---- CDI ---------------------------------------------------------------------------------------
+ 
+@@ -547,10 +551,12 @@
+         auto d = std::make_unique<GdiDisc>();
+         return d->open(path, error) ? std::unique_ptr<Disc>(std::move(d)) : nullptr;
+     }
++#ifndef DREAM_NO_CHD
+     if (ext == ".chd") {
+         auto d = std::make_unique<ChdDisc>();
+         return d->open(path, error) ? std::unique_ptr<Disc>(std::move(d)) : nullptr;
+     }
++#endif
+     if (ext == ".cdi") {
+         auto d = std::make_unique<CdiDisc>();
+         return d->open(path, error) ? std::unique_ptr<Disc>(std::move(d)) : nullptr;
