@@ -20,7 +20,9 @@
 
 ## Números
 
-Variables: `G=/home/unjordi/code/ajenos/dr-rev/games/ikaruga/extracted`.
+Revisión (2026-11-06 09:3x): EBOOT reconstruido desde cero y `scripts/test-psp-arranque.sh` repetido; mismos ciclos y PC en los cuadros 60–180 (CONFIRMADO).
+
+Variables: `G=<dream-recomp>/games/ikaruga/extracted`.
 
 ### Velocidad y cuadros alcanzados (300 s de PPSSPP)
 
