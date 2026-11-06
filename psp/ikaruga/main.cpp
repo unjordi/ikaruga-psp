@@ -250,8 +250,9 @@ int main() {
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
     // The console clock: fixed by rtc_semilla (PC's --rtc-seed) so a run repeats, and ticked once
     // per guest second as on PC.
-    dream::aica::Rtc rtc((cfg.rtc_seed ? static_cast<std::uint32_t>(cfg.rtc_seed)
-                                       : static_cast<std::uint32_t>(std::time(nullptr))) +
+    dream::aica::Rtc rtc(
+        (cfg.rtc_seed ? static_cast<std::uint32_t>(cfg.rtc_seed)
+                      : static_cast<std::uint32_t>(std::time(nullptr))) +
         dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
     int rtc_tick = -1;
