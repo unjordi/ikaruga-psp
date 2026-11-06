@@ -1,0 +1,97 @@
+--- a/runtime/src/aica/mixer.cpp	2026-11-05 22:56:22.461642469 -0600
++++ b/runtime/src/aica/mixer.cpp	2026-11-05 23:07:06.819896271 -0600
+@@ -120,8 +120,8 @@
+         rv = 0x7FFF;
+     rv = sign * rv + prev;
+     quant = (quant * kAdpcmQs[data]) >> 8;
+-    quant = std::clamp(quant, 127, 24576);
+-    return std::clamp(rv, -32768, 32767);
++    quant = std::clamp<s32>(quant, 127, 24576);
++    return std::clamp<SampleType>(rv, -32768, 32767);
+ }
+ 
+ // DSP float format (Audio Overload SDK)
+@@ -547,7 +547,7 @@
+         sample = static_cast<SampleType>(mac >> kCoefBits);
+         FEG.fractSave = static_cast<s32>((static_cast<s64>(sample) << kCoefBits) - mac);
+         FEG.prev2 = FEG.prev1;
+-        sample = std::clamp(sample, -512 * 1024, 512 * 1024 - 1);
++        sample = std::clamp<SampleType>(sample, -512 * 1024, 512 * 1024 - 1);
+         FEG.prev1 = sample;
+         return sample;
+     }
+@@ -564,7 +564,7 @@
+             ofsatt = 0;
+         } else {
+             ofsatt = lfo.alfo + static_cast<u32>(AEG.value() >> 2);
+-            ofsatt = std::min(ofsatt, 255u);
++            ofsatt = std::min<u32>(ofsatt, 255u);
+         }
+         const u32 max_att = ((16u << 4) - 1) - ofsatt;
+         const s32* logtable = kTlLut + ofsatt;
+@@ -650,7 +650,7 @@
+             effrate += static_cast<u32>(std::max<int>(
+                 0, (static_cast<int>(ccd->KRS) + (static_cast<int>(ccd->OCT) ^ 8) - 8) * 2));
+         }
+-        return std::min(effrate, 0x3fu);
++        return std::min<u32>(effrate, 0x3fu);
+     }
+     void update_aeg() {
+         AEG.AttackRate = kAegAttackSps[eg_eff_rate(ccd->AR)];
+@@ -974,7 +974,7 @@
+         // One-step delay at the adder output: the shifter sees the previous ACC.
+         SHIFTED = (SHIFT == 0 || SHIFT == 3) ? ACC : ACC << 1;
+         if (SHIFT < 2)
+-            SHIFTED = std::min(std::max(SHIFTED, -0x00800000), 0x007FFFFF);
++            SHIFTED = std::min<s32>(std::max<s32>(SHIFTED, -0x00800000), 0x007FFFFF);
+         ACC = static_cast<s32>((static_cast<s64>(X) * Y) >> 12) + B;
+         if (TWT) {
+             const u32 TWA = (IPtr[0] >> 1) & 0x7F;
+@@ -1051,8 +1051,8 @@
+         mixl >>= 2;
+         mixr >>= 2;
+     }
+-    mixl = std::clamp(mixl, -32768, 32767);
+-    mixr = std::clamp(mixr, -32768, 32767);
++    mixl = std::clamp<SampleType>(mixl, -32768, 32767);
++    mixr = std::clamp<SampleType>(mixr, -32768, 32767);
+     if (mixl | mixr)
+         ++nonzero_samples;
+     left = static_cast<std::int16_t>(mixl);
+--- a/render/src/texture.cpp	2026-11-05 22:56:22.462642458 -0600
++++ b/render/src/texture.cpp	2026-11-05 22:56:58.907662350 -0600
+@@ -75,9 +75,9 @@
+     const s32 r = y + v * 11 / 8;
+     const s32 g = y - (u * 11 + v * 22) / 32;
+     const s32 b = y + u * 110 / 64;
+-    return pack_rgba(static_cast<u32>(std::clamp(r, 0, 255)),
+-                     static_cast<u32>(std::clamp(g, 0, 255)),
+-                     static_cast<u32>(std::clamp(b, 0, 255)), 255u);
++    return pack_rgba(static_cast<u32>(std::clamp<s32>(r, 0, 255)),
++                     static_cast<u32>(std::clamp<s32>(g, 0, 255)),
++                     static_cast<u32>(std::clamp<s32>(b, 0, 255)), 255u);
+ }
+ 
+ u16 read16(const u8* p) {
+--- a/render/src/display_list.cpp	2026-11-05 22:56:22.464642437 -0600
++++ b/render/src/display_list.cpp	2026-11-05 22:56:58.907835063 -0600
+@@ -472,7 +472,7 @@
+ bool polygon_tiles(const Frame& frame, const Polygon& polygon) {
+     constexpr float kSlack = 1.0f / 64.0f;
+     const std::size_t first = polygon.first;
+-    const std::size_t last = std::min(frame.vertices.size(), first + polygon.count);
++    const std::size_t last = std::min<std::size_t>(frame.vertices.size(), first + polygon.count);
+     for (std::size_t i = first; i < last; ++i) {
+         const Vertex& v = frame.vertices[i];
+         if (v.u < -kSlack || v.u > 1.0f + kSlack)
+--- a/render/src/framebuffer.cpp	2026-11-05 22:56:22.465642426 -0600
++++ b/render/src/framebuffer.cpp	2026-11-05 22:56:58.907989891 -0600
+@@ -118,7 +118,7 @@
+     out.height = size_y(size) + 1u;
+     // At the lower pixel clock the hardware scans 240 lines and the display doubles them.
+     if (ctrl_vclk_div(ctrl) == 0)
+-        out.height = std::min(out.height, 240u);
++        out.height = std::min<std::uint32_t>(out.height, 240u);
+ 
+     return out.width != 0 && out.height != 0 && out.width <= 1024 && out.height <= 1024;
+ }
