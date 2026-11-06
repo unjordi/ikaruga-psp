@@ -36,7 +36,8 @@ mkdir -p "$(dirname "$SALIDA")"
 WORK="$(mktemp -d "$(dirname "$SALIDA")/.ppsspp-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-MS="$WORK/memstick"
+# PPSSPP on Linux uses $XDG_CONFIG_HOME/ppsspp as the memory stick root (PSP/SYSTEM holds its ini).
+MS="$WORK/config/ppsspp"
 GAME="$MS/PSP/GAME/IKARUGA"
 mkdir -p "$GAME"
 cp "$EBOOT" "$GAME/EBOOT.PBP"
@@ -46,19 +47,15 @@ if [[ "$JUEGO" != "-" ]]; then
   "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
 fi
 
-# Private PPSSPP config: the user's settings are neither used nor touched. The memory stick is
-# the temporary one. OpenGL because Xvfb has no DRI3 for Vulkan. Speed unlimited is not set: the
+# Private PPSSPP config: the user's settings are neither used nor touched. OpenGL because Xvfb has no DRI3 for Vulkan. Speed unlimited is not set: the
 # PSP's own clock paces nothing here, the run is CPU bound.
 mkdir -p "$WORK/config/ppsspp/PSP/SYSTEM"
-cat > "$WORK/config/ppsspp/PSP/SYSTEM/ppsspp.ini" <<INI
+cat > "$WORK/config/ppsspp/PSP/SYSTEM/ppsspp.ini" <<'INI'
 [General]
 FirstRun = False
-MemStickDirectory = $MS
 [Graphics]
 GraphicsBackend = 0 (OPENGL)
 INI
-# PPSSPP also reads the memstick location from installed.txt next to its config.
-echo "$MS" > "$WORK/config/ppsspp/installed.txt"
 
 LOG="$WORK/ppsspp.log"
 RAW="$WORK/captura.png"
