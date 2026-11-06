@@ -89,3 +89,59 @@ scripts/test-psp-arranque.sh build/psp/ikaruga/EBOOT.PBP $G 60
 
 Corre las dos anteriores y falla si falta el error, si no hay cuadros, si el PC del guest no cambia
 o si el guest se detuvo (`fault`/`stop`).
+
+## Idle-skip en la PSP
+
+Mismo EBOOT -Os para las dos columnas (sha256
+`7f7c8dd35d8d1b5b0cd27f3e67a2f7603146aa6c5d2382757e5cc47c74f6e1e6`, imagen 13,66 MB + guest
+28,1 MB = 41,76 MB de ~52 MB), construido con
+
+```sh
+scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen
+```
+
+donde `gen/` sale del traductor con `patches/dream-recomp-pc/*.patch` (sha256 de la concatenación
+ordenada `924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da`; cómo generarlo en
+docs/reproducir-pc.md §5.2) y el runtime lleva `patches/dream-recomp/0004-idle-skip-runtime.patch`.
+`psp/ikaruga/main.cpp` llena `System::idle_loops` con la tabla `[idle]` de `ikaruga.toml`
+(`0x0C0370BA = katana_wait_vblank`) igual que `boot_main.cpp`. Interruptor: si existe
+`ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP`, la tabla queda vacía (el equivalente de `--no-idle-skip`);
+`scripts/probar-ikaruga-ppsspp.sh` lo crea con `PROBAR_SIN_IDLE=1`. El log dice
+`idle-skip: on|off` al arrancar y cada línea `tick` añade `idle_skips` e `idle_cycles` (`pc` sigue
+siendo el último campo).
+
+```sh
+G=<dream-recomp>/games/ikaruga/extracted
+PROBAR_SIN_IDLE=1 scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $G 300 build/psp/evidencia/sin-idle-300s.log
+scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $G 300 build/psp/evidencia/con-idle-300s.log
+```
+
+Mismas advertencias que arriba (PPSSPP 1.20.4 en el Ryzen 9 9950X, `host_s` = reloj PSP emulado).
+
+| | sin idle-skip | con idle-skip |
+|---|---:|---:|
+| cuadro alcanzado en 300 s | 600 (a los 279,1 s) | **2520** (a los 298,2 s) |
+| cuadro 600 a los | 279,1 s | 93,0 s |
+| speed acumulada al final | 0,0359x | **0,141x** |
+| speed en el tramo 240→600 | 0,0289x | 0,1525x (**5,3x** más) |
+| speed en el tramo 600→2520 | — | 0,156x |
+| ciclos saltados en 240→600 | 0 | 1 105 067 095 de 1 201 095 006 (92 %) |
+
+Cuadros 60 y 180 (cycles, pc):
+
+| frames | hoy (tabla de arriba) | sin idle-skip | con idle-skip |
+|---:|---|---|---|
+| 60 | 201 989 964, 0x0c051028 | 201 989 964, 0x0c051028 | 201 989 964, 0x0c051028 |
+| 180 | 602 355 154, 0x0c04b628 | 602 355 153, 0x0c04b628 | 602 355 154, 0x0c04b628 |
+
+- Sin idle-skip, el EBOOT nuevo da lo mismo que el de hoy: igual en el cuadro 60, ±1 ciclo en el
+  180 y el cuadro 600 a los 279,1 s frente a 277,5 s.
+- Con idle-skip no hay saltos hasta el cuadro 180 (`idle_skips 0`); empiezan entre los cuadros
+  180 y 240.
+- Ciclos del guest por cuadro, con idle-skip frente a sin él, en los 11 cuadros comunes (0–600):
+  iguales en 0 y 60, +1 en 120–360 y en 480–600, −12 en 420. No son idénticos bit a bit, pero la
+  diferencia está dentro de la que ya hay entre dos corridas **sin** idle-skip (cuadro 420: hoy
+  1 403 084 964, corrida nueva sin idle-skip 1 403 084 975, +11). El `pc` muestreado en el callback
+  de VBlank también varía entre corridas desde el cuadro 240 (cuadro 420: 0x0c03b320 sin
+  idle-skip; 0x0c03cd60 con idle-skip y hoy).
+

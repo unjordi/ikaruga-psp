@@ -1,7 +1,7 @@
 # Idle-skip de `kmWaitVBlank` (Ikaruga)
 
 Cambio de código: `idleskip.patch` (un commit sobre dream-recomp `51ca276`, `git format-patch`),
-aquí en `patches/dream-recomp-pc/0001-idle-skip-for-declared-wait-loops.patch`. Toca el traductor y el runtime: para usarlo en la PSP hay que regenerar el C++ con el traductor parchado y aplicar la parte del runtime en `scripts/build-psp-ikaruga.sh`; eso todavía no está hecho.
+aquí en `patches/dream-recomp-pc/0001-idle-skip-for-declared-wait-loops.patch`. Toca el traductor y el runtime: para usarlo en la PSP hay que regenerar el C++ con el traductor parchado y aplicar la parte del runtime en `scripts/build-psp-ikaruga.sh` (`patches/dream-recomp/0004-idle-skip-runtime.patch`; medido en docs/arranque-psp.md, «Idle-skip en la PSP»).
 
 Revisión (2026-11-06 09:5x): reconstruido desde cero y medido con y sin idle-skip; guest idéntico (16000009449 ciclos, 4795 cuadros, pc 0x0c0196fc), host 9,84 s contra 22,32 s con la máquina cargada (CONFIRMADO).
 
