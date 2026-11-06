@@ -7,8 +7,8 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <exception>
 #include <memory>
 #include <string>
@@ -76,6 +76,66 @@ void log_line(const char* fmt, ...) {
     buf[n++] = '\n';
     ikaruga::host::file_append(path_in_dir("ikaruga.log").c_str(), buf,
         static_cast<std::uint32_t>(n));
+}
+
+// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' comments. Only rtc_seed is read: the
+// console clock in seconds since 1970, as the PC launcher's --rtc-seed. Default 1.
+std::uint32_t rtc_seed_from_cfg() {
+    std::vector<std::uint8_t> raw;
+    std::uint32_t seed = 1;
+    if (!ikaruga::host::file_read(path_in_dir("ikaruga.cfg").c_str(), raw))
+        return seed;
+    std::string text(raw.begin(), raw.end());
+    std::size_t at = 0;
+    while (at < text.size()) {
+        std::size_t end = text.find('\n', at);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string line = text.substr(at, end - at);
+        at = end + 1;
+        line = line.substr(0, line.find('#'));
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+        std::string key = line.substr(0, eq);
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t\r") + 1);
+        if (key == "rtc_seed")
+            seed = static_cast<std::uint32_t>(std::strtoul(line.c_str() + eq + 1, nullptr, 0));
+    }
+    return seed;
+}
+
+// The AICA clock advances one second every 200M guest cycles, scheduled as the PC launcher does.
+void start_rtc_tick(dream::System& sys, dream::aica::Rtc& rtc) {
+    auto id = std::make_shared<int>(-1);
+    *id = sys.sched.add("rtc", [&sys, &rtc, id](std::uint64_t, std::uint64_t) {
+        rtc.tick();
+        sys.sched.request(*id, 200'000'000ull);
+    });
+    sys.sched.request(*id, 200'000'000ull);
+}
+
+// Oracle against PC: the rolling hash of guest stores that the PC launcher's --write-hash prints,
+// sampled the same way (first scanline of each new frame, from a scheduler event with the period
+// of a scanline), logged every kLogEvery frames as "hash <frame> <cycles> <hash> <writes> rtc <s>".
+void start_write_hash(dream::System& sys, const dream::aica::Rtc& rtc) {
+    sys.memory.hash_writes = true;
+    auto id = std::make_shared<int>(-1);
+    auto hashed_frame = std::make_shared<std::uint64_t>(~0ull);
+    const std::uint64_t period = sys.spg.line_cycles();
+    *id = sys.sched.add("write-hash", [&sys, &rtc, id, hashed_frame, period](std::uint64_t now,
+                                                                       std::uint64_t) {
+        const std::uint64_t f = sys.spg.frames();
+        if (f != *hashed_frame) {
+            *hashed_frame = f;
+            if (f % kLogEvery == 0)
+                log_line("hash %" PRIu64 " %" PRIu64 " %016" PRIx64 " %" PRIu64 " rtc %" PRIu32, f,
+                    now, sys.memory.write_hash, sys.memory.writes_hashed, rtc.seconds());
+        }
+        sys.sched.request(*id, period);
+    });
+    sys.sched.request(*id, period);
 }
 
 int quit(int rc) {
@@ -165,9 +225,12 @@ int main(int argc, char** argv) {
 
     dream::aica::Aica aica(sys.sched, sys.holly, sys.memory);
     sys.memory.map_mmio(dream::aica::Aica::kRegBase, dream::aica::Aica::kRegEnd, &aica);
-    dream::aica::Rtc rtc(static_cast<std::uint32_t>(std::time(nullptr)) +
-        dream::aica::Rtc::kUnixEpochOffset);
+    const std::uint32_t rtc_seed = rtc_seed_from_cfg();
+    dream::aica::Rtc rtc(rtc_seed + dream::aica::Rtc::kUnixEpochOffset);
     sys.memory.map_mmio(dream::aica::Rtc::kBase, dream::aica::Rtc::kEnd, &rtc);
+    start_rtc_tick(sys, rtc);
+    log_line("rtc: seed %" PRIu32, rtc_seed);
+    start_write_hash(sys, rtc);
 
     const std::uint64_t t0 = host::clock_us();
     auto report = [&](const char* what) {
