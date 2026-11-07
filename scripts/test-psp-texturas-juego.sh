@@ -49,7 +49,7 @@ set +e
 set -e
 ra="$(rechazos "$A")" pa="$(psnr "$A")"
 if [[ "$ra" == 0 ]]; then
-  echo "PASS (a) frame $cuadro: rejected_this_render 0"
+  echo "PASS (a) frame $cuadro: over_budget + rejected_this_render 0"
 else
   echo "FAIL (a) frame $cuadro: rejected_this_render ${ra:-missing} (see $A/psp.log)"; fallos=1
 fi
@@ -73,9 +73,9 @@ if [[ $contra -eq 1 ]]; then
   set -e
   rc="$(rechazos "$C")" pc="$(psnr "$C")"
   if [[ -n "$rc" && "$rc" -gt 0 ]]; then
-    echo "PASS (c) texturas_kb=$viejo: rejected_this_render $rc > 0 (psnr ${pc:-?} dB)"
+    echo "PASS (c) texturas_kb=$viejo: over_budget + rejected_this_render $rc > 0 (psnr ${pc:-?} dB)"
   else
-    echo "FAIL (c) texturas_kb=$viejo: rejected_this_render ${rc:-missing}, expected > 0"; fallos=1
+    echo "FAIL (c) texturas_kb=$viejo: over_budget + rejected_this_render ${rc:-missing}, expected > 0"; fallos=1
   fi
 fi
 exit $fallos
