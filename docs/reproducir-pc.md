@@ -126,6 +126,9 @@ CONFIRMADO: el parche aplicado con `patch -p1` sobre `third_party/dream-recomp` 
 `docs/runtime-interrupts.md` idénticos (`diff -rq`) a los de `~/code/ajenos/dr-idle`, el árbol cuyo
 `gen/` se midió.
 
+Con el parche el binario de 5 ya no mide lo de la tabla: CONFIRMADO en la corrida de punta a punta
+(docs/primer-uso.md) `ikaruga_boot` de 14 430 776 B, text 13 152 407, data 227 080, bss 590 520.
+
 Comprobación igual que en 5.1. Esperado con el parche:
 `924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da` (CONFIRMADO sobre
 `~/code/ajenos/dr-idle/build-rel/games/ikaruga/gen` con
