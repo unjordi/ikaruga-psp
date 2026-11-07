@@ -75,7 +75,8 @@ if [[ $todas -eq 1 ]]; then
     else echo "(d) FAIL: $name (see $EV/test-titulo-d-$name.out)"; fail=1; fi
   }
   run arranque "$REPO/scripts/test-psp-arranque.sh" "$E" "$G"
-  run redondeo "$REPO/scripts/test-psp-redondeo.sh"
+  # DREAM_RECOMP may point at an already patched tree; this test patches the submodule copy.
+  run redondeo env -u DREAM_RECOMP "$REPO/scripts/test-psp-redondeo.sh"
   run rtc "$REPO/scripts/test-psp-rtc.sh" "$E" "$G"
   run carpeta "$REPO/scripts/test-psp-carpeta.sh" "$E" "$G"
   run vmu "$REPO/scripts/test-psp-vmu.sh" "$E" "$G"
