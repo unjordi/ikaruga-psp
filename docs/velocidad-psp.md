@@ -111,6 +111,37 @@ registros), el costo queda igual al soft-double. Revertido; el parche y la prueb
 repo. Las opciones (a) VFPU y (b) `float` cambian el último bit frente a PC y exigirían el mismo
 cambio en el binario de PC: no se hicieron en esta fila.
 
+### 4. Presupuesto de la caché sin rechazos (conservado, commit `a2750eb`)
+
+Una ventana de 2 MB no alcanza: el render más exigente del capítulo 1 pide 2 445 440 B
+(`peak_demand`). Subir el tope a 2,5 MB sin más se queda sin heap en el cuadro 2491
+(`fault: std::bad_alloc`, corrida `velocidad-exact3`). El runtime reservaba 2 MB de ROM de arranque
+en ceros que con la BIOS HLE nunca se cargan ni se leen: `patches/dream-recomp/0008-optional-bios-image.patch`
+(`-DDREAM_NO_BIOS_IMAGE`) no la reserva (lecturas de ROM dan 0, como el búfer vacío; escrituras se
+descartan), y la caché pasa a 2 560 KB (`texturas_kb`, default nuevo).
+
+| EBOOT | juego 2600 speed (2 corridas) | host_s | over_budget (toda la corrida) | decode_ms |
+|---|---|---|---|---|
+| caché 2 MB (`velocidad-cache2`) | 0,0517 / 0,0517 | 839,883 | 10 907 | 3 428 |
+| caché 2,5 MB sin búfer de ROM (`velocidad-nobios`) | 0,0518 / 0,0518 (+0,2 %) | 837,556 | **0** | 1 315 |
+
+No cumple el 3 % de velocidad, pero se conserva porque es lo que pide el punto 2 de la tarea: los
+polígonos que salían sin textura ahora salen con textura (0 rechazos en toda la corrida, no solo en
+el render capturado).
+
+### 5. A5 — memo de UTLB y de rango MMIO en las store queues (revertido)
+
+`sq_flush` probaba primero la entrada de la UTLB de la traducción anterior y `resolve` el último
+rango MMIO acertado (la FIFO del TA), antes de las búsquedas lineales.
+
+| EBOOT | juego 2600 speed | host_s |
+|---|---|---|
+| `velocidad-nobios` | 0,0518 | 837,556 |
+| + memo (`velocidad-a5`) | 0,0528 (+1,9 %) | 821,314 |
+
+Por debajo del 3 %: revertido (el reloj de PPSSPP es determinista, la segunda corrida da lo mismo).
+El resto de A5 (`std::function` de `on_device_access`, `stream.insert` del TA) no se probó.
+
 ## RAM libre
 
 (pendiente)
