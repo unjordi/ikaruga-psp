@@ -289,6 +289,7 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v) {
     if (!g_enabled || !g_vram)
         return nullptr;
+    ++g_stats.requests;
     const std::uint64_t key = (static_cast<std::uint64_t>(tcw) << 32) | (tsp & 0x3Fu) |
                               (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u);
     auto it = g_entries.find(key);
@@ -317,7 +318,11 @@ const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_
         e.palette_hash = ph;
         e.checked = g_render;
     }
-    if (!e.memory && !build(e, mirror_u, mirror_v))
+    if (e.memory) {
+        ++g_stats.hits;
+        return &e.tex;
+    }
+    if (!build(e, mirror_u, mirror_v))
         return nullptr;
     return &e.tex;
 }

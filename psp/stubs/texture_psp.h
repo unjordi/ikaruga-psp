@@ -38,6 +38,8 @@ struct TextureCacheStats {
     std::uint32_t evicted = 0;      // images dropped to stay under the budget
     std::uint32_t failed = 0;       // textures the decoder rejected
     std::uint32_t over_budget = 0;  // requests refused because the render alone exceeds the cap
+    std::uint32_t requests = 0;     // texcache_get calls with the cache enabled
+    std::uint32_t hits = 0;         // of those, answered with an image already held and valid
     std::uint64_t hash_us = 0, decode_us = 0;  // time spent validating and building
 };
 

@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "dream/runtime/perf.h"
 #include "dream/render/background.h"
 #include "dream/render/display_list.h"
 #include "dream/runtime/aica/aica.h"
@@ -431,6 +432,38 @@ int main(int argc, char** argv) {
     // decoded stream's, before the background plane is added, so it matches the PC launcher's.
     dream::render::DisplayList decoder;
     std::uint64_t renders = 0, draw_us = 0;
+    // Per-frame averages since the previous perf line: guest FPU vector ops, NonLocalReturn
+    // throws (also per host second), scheduler callbacks, texture cache traffic and draw time.
+    struct PerfMark {
+        std::uint64_t frame = 0, host_us = 0, renders = 0, draw_us = 0;
+        dream::perf::Counters c;
+        host::TextureCacheStats t;
+    } mark;
+    mark.host_us = host::clock_us();
+    auto log_perf = [&](std::uint64_t f) {
+        const dream::perf::Counters& c = dream::perf::counters;
+        const host::TextureCacheStats t = host::texcache_stats();
+        const std::uint64_t now = host::clock_us();
+        const double n = f > mark.frame ? static_cast<double>(f - mark.frame) : 1.0;
+        const double secs = now > mark.host_us ? (now - mark.host_us) / 1e6 : 1.0;
+        const double rn = renders > mark.renders ? static_cast<double>(renders - mark.renders) : 1.0;
+        log_line("perf: frames %" PRIu64 "-%" PRIu64 " fipr/f %.0f ftrv/f %.0f fmac/f %.0f "
+            "throw/f %.1f throw/s %.0f sched/f %.0f tex_req/f %.0f tex_hit/f %.0f "
+            "tex_build/f %.2f tex_rej/f %.1f tex_ms/f %.2f draw_ms/render %.2f",
+            mark.frame, f, (c.fipr - mark.c.fipr) / n, (c.ftrv - mark.c.ftrv) / n,
+            (c.fmac - mark.c.fmac) / n, (c.throws - mark.c.throws) / n,
+            (c.throws - mark.c.throws) / secs, (c.sched_events - mark.c.sched_events) / n,
+            (t.requests - mark.t.requests) / n, (t.hits - mark.t.hits) / n,
+            (t.decoded - mark.t.decoded) / n, (t.over_budget - mark.t.over_budget) / n,
+            ((t.hash_us + t.decode_us) - (mark.t.hash_us + mark.t.decode_us)) / 1000.0 / n,
+            (draw_us - mark.draw_us) / 1000.0 / rn);
+        mark.frame = f;
+        mark.host_us = now;
+        mark.renders = renders;
+        mark.draw_us = draw_us;
+        mark.c = c;
+        mark.t = t;
+    };
     pvr.on_render = [&](const std::vector<std::uint32_t>& stream) {
         const std::uint64_t r0 = host::clock_us();
         decoder.reset();
@@ -468,6 +501,7 @@ int main(int argc, char** argv) {
                 " decode_ms %.1f", st.textured, ts.entries, ts.bytes, ts.peak_bytes, ts.budget,
                 ts.decoded, ts.invalidated, ts.evicted, ts.failed, ts.over_budget,
                 ts.hash_us / 1000.0, ts.decode_us / 1000.0);
+            log_perf(f);
             host::texcache_describe(&log_line);
             log_memory("memory");
             if (cfg.dump_ta) {
@@ -499,6 +533,7 @@ int main(int argc, char** argv) {
         check_exit();
         if (f % kLogEvery == 0) {
             report("tick");
+            log_perf(f);
             log_line("video: renders %" PRIu64 " draw_ms_per_render %.2f", renders,
                 renders ? static_cast<double>(draw_us) / 1000.0 / renders : 0.0);
             const host::TextureCacheStats ts = host::texcache_stats();
