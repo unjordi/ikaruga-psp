@@ -178,7 +178,17 @@ Arreglarlo exige reproducir exactamente el `SPG_STATUS` por línea; queda pendie
 
 ## RAM libre
 
-(pendiente)
+Línea `memory:` del log al capturar el cuadro 2600 (heap de newlib; `largest_block_kb` se mide
+reservando bloques decrecientes; `kernel_free_kb` es lo que el kernel aún da fuera del heap):
+
+| EBOOT | arena | en uso | libre en la arena | bloque mayor | kernel libre | caché |
+|---|---|---|---|---|---|---|
+| develop | 37 569 280 | 35 897 432 | 1 671 848 | 608 KB | 764 KB | 2 029 952 B (tope 2 MB) |
+| caché 2 MB (`cache2`) | 37 764 352 | 35 897 688 | 1 866 664 | 528 KB | 764 KB | 2 029 952 B |
+| final (`nobios`, tope 2,5 MB) | 36 175 360 | 34 389 208 | 1 786 152 | 2 016 KB | 764 KB | 2 617 728 B |
+
+El búfer de ROM que ya no se reserva (2 MB) paga los 0,5 MB extra de caché y deja un bloque libre
+de ~2 MB para la copia RGBA temporal de la decodificación (hasta 2 MB para 512×1024) y la captura.
 
 ## Qué NO verifiqué
 
