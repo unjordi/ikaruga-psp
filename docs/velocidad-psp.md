@@ -142,6 +142,40 @@ rango MMIO acertado (la FIFO del TA), antes de las búsquedas lineales.
 Por debajo del 3 %: revertido (el reloj de PPSSPP es determinista, la segunda corrida da lo mismo).
 El resto de A5 (`std::function` de `on_device_access`, `stream.insert` del TA) no se probó.
 
+### Diagnóstico: cuánto pesa A3 de verdad (no conservado, no es un cambio)
+
+Para saber si A3 basta para la meta, se construyó un EBOOT de diagnóstico con FIPR/FTRV/FMAC en
+`float` simple (opción b, sin exactitud), sobre `velocidad-nobios`:
+
+| EBOOT | juego 2600 speed | host_s |
+|---|---|---|
+| `velocidad-nobios` | 0,0518 | 837,556 |
+| diagnóstico `float` (`velocidad-diagfloat`) | 0,0902 (+74 %) | 481,223 |
+
+- Es la cota de lo que A3 puede dar en PPSSPP: ni así se llega a 0,105x.
+- El `write_hash` del diagnóstico difiere del de develop desde el cuadro 1500 (primer cuadro de
+  juego con FTRV): `float` cambia lo que el juego escribe, así que la opción (b) solo es aceptable
+  si el binario de PC hace lo mismo (parche compartido) y se vuelve a validar contra Flycast. No lo
+  hice: la tarea prohíbe relajar `test-psp-igual-pc.sh` y cambiar la referencia del PC es decisión
+  del dueño.
+
+### 6. A6a — SPG con eventos solo en las líneas especiales (revertido por correctitud)
+
+Evento del scheduler solo en las líneas 0, VBlank in/out, vstart, vbend y la de HBlank (modo 0);
+la línea intermedia y `SPG_STATUS` se calculan del reloj.
+
+| EBOOT | juego 2600 speed | host_s | write_hash vs `velocidad-nobios` |
+|---|---|---|---|
+| `velocidad-nobios` | 0,0518 | 837,556 | — |
+| + SPG (`velocidad-a6`) | 0,0535 (+3,3 %) | 810,866 | **distinto desde el cuadro 240** (`d7e9cca4…` → `ee3fa477…`) |
+
+Pasa el umbral de velocidad pero cambia lo que escribe el juego (mismos ciclos en el cuadro 240,
+otro hash: probablemente el juego lee `SPG_STATUS` en un punto donde el valor calculado y el de un
+evento por línea no coinciden, p. ej. el bit de VSync/blank entre eventos). Revertido sin correr
+`test-psp-igual-pc.sh`: ya se sabe que fallaría. Los saltos de idle-skip bajaron de 2 791 805 a
+1 879 494 al cuadro 2580 (cada evento de línea cortaba un salto); no medí `sched/f` en esa corrida.
+Arreglarlo exige reproducir exactamente el `SPG_STATUS` por línea; queda pendiente.
+
 ## RAM libre
 
 (pendiente)
