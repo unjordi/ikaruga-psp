@@ -46,9 +46,12 @@ cmake --build build-rel --target ikaruga_boot --parallel "$(nproc)"
 (cd build-rel/games/ikaruga/gen && cat $(ls | sort) | sha256sum)   # 924f8b67…
 cd ../..
 
-# 6. EBOOT de PSP
+# 6. EBOOT de PSP: se construye desde el submódulo (DREAM_RECOMP sin definir); el dream-recomp de
+#    build/ ya trae el parche de PC y build-psp-ikaruga.sh volvería a parcharlo
+scripts/build-psp-ikaruga.sh build/dream-recomp/build-rel/games/ikaruga/gen --variantes=mix
+
+# DREAM_RECOMP desde aquí: el binario de PC para las pruebas y volcar-area-hd
 export DREAM_RECOMP=$PWD/build/dream-recomp
-scripts/build-psp-ikaruga.sh $DREAM_RECOMP/build-rel/games/ikaruga/gen --variantes=mix
 
 # 7. el disco real por área HD (NO scripts/preparar-disco-ikaruga.sh: ese ISO diverge de PC)
 D=$DREAM_RECOMP; L=$(find $D/build-rel/third_party -name '*.a' | tr '\n' ' ')
