@@ -15,7 +15,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="ikaruga-psp-toolchain:v20261001"
+# IKARUGA_PSP_IMAGE overrides the toolchain image tag (e.g. to check that a freshly built image
+# gives the same EBOOT as the cached one).
+IMAGE="${IKARUGA_PSP_IMAGE:-ikaruga-psp-toolchain:v20261001}"
 DR="${DREAM_RECOMP:-$REPO/third_party/dream-recomp}"
 OUT="$REPO/build/psp/ikaruga"
 USAGE_LINES='2,12p'

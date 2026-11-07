@@ -12,8 +12,11 @@
   (sha256 `26528a2b8379bf36ea1dd392e89a8f008cf1110ff7f749d280ab59a339242333`), construido con
   `scripts/build-psp-ikaruga.sh <dr-rev>/build-rel/games/ikaruga/gen` (dream-recomp `51ca276` +
   `patches/dream-recomp/`). Tamaño: imagen -Os 13,66 MB + guest 28,1 MB = 41,76 MB de ~52 MB.
-- Lee de `ms0:/PSP/GAME/IKARUGA/`: `1ST_READ.BIN` y `DISCO.ISO` (área de juego del GD-ROM,
-  hecha con `scripts/preparar-disco-ikaruga.sh` desde el disco extraído; el disco nunca va al repo).
+- Lee de `ms0:/PSP/GAME/IKARUGA/`: `1ST_READ.BIN` y `DISCO.ISO` (área de juego del GD-ROM; el
+  disco nunca va al repo). Esta medición usó el `DISCO.ISO` de `scripts/preparar-disco-ikaruga.sh`,
+  que **no** es el disco real (los archivos caen en otros sectores y el juego diverge de PC desde el
+  cuadro 4). Para jugar o comparar con PC usa el área HD real volcada con `tools/volcar-area-hd.cpp`
+  (docs/correctitud-psp.md, «Disco»; receta en docs/primer-uso.md).
 - Sin video, audio ni entrada (stubs). Cada 60 cuadros del guest agrega una línea a
   `ms0:/PSP/GAME/IKARUGA/ikaruga.log`: `frames`, `cycles` (SH-4, 200 MHz), `guest_s`,
   `host_s`, `speed = guest_s / host_s` (veces tiempo real) y `pc` del guest.
