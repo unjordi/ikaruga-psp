@@ -7,6 +7,9 @@ Port of **Ikaruga** (Treasure, Dreamcast 2002) to the **PlayStation Portable**, 
 ## No game data here
 This repository contains only our own code and docs. You need **your own copy** of the Dreamcast disc; the game executable and the C generated from it are produced locally and are never committed.
 
+## Try it
+From your own disc to the `ms0:/PSP/GAME/IKARUGA/` folder, tested end to end in PPSSPP (title screen only, not playable yet): [`docs/primer-uso.md`](docs/primer-uso.md) (Spanish).
+
 ## Plan
 1. Recompile the Dreamcast executable with dream-recomp and run it on PC.
 2. PSP layer: PowerVR2 display lists → PSP GU, AICA sound → Media Engine, input, files from the Memory Stick.
