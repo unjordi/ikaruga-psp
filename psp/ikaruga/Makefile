@@ -20,7 +20,7 @@ RT_SRCS := \
   render/src/display_list.cpp render/src/texture.cpp render/src/framebuffer.cpp \
   render/src/background.cpp render/src/fog.cpp
 GEN_SRCS  := $(sort $(notdir $(wildcard $(GEN)/*.cpp)))
-HOST_SRCS := video.cpp input.cpp audio.cpp clock.cpp file.cpp disc.cpp vmu.cpp process.cpp
+HOST_SRCS := video.cpp texture_psp.cpp input.cpp audio.cpp clock.cpp file.cpp disc.cpp vmu.cpp process.cpp
 
 RT_OBJS   := $(addprefix obj/rt/,$(RT_SRCS:.cpp=.o))
 GEN_OBJS  := $(addprefix obj/gen/,$(GEN_SRCS:.cpp=.o))

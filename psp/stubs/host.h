@@ -13,10 +13,11 @@
 
 namespace ikaruga::host {
 
-// Rows 1-4: GE context, renderer, presentation (no textures yet).
+// Rows 1-4: GE context, renderer, presentation; textures in texture_psp.h.
 struct VideoStats {
     std::uint32_t drawn = 0;    // strips sent to the GE
     std::uint32_t blended = 0;  // of those, translucent
+    std::uint32_t textured = 0;  // strips drawn with a texture
     std::uint32_t list_bytes = 0;  // GE display list used by the render, of list_capacity
     std::uint32_t list_capacity = 0;
     std::uint32_t dropped = 0;  // strips not drawn because the display list was full

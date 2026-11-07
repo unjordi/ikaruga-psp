@@ -1,6 +1,20 @@
 // Rows 1-4 of docs/diseno-psp.md: draws the Frame that dream::render decodes from the Tile
-// Accelerator stream with the GE, untextured, at 480x272, in through mode (GU_TRANSFORM_2D) with
-// the 640x480 -> 480x272 scale done while converting the vertices.
+// Accelerator stream with the GE at 480x272, in through mode (GU_TRANSFORM_2D) with the
+// 640x480 -> 480x272 scale done while converting the vertices. Textures come from texture_psp.h;
+// the per-polygon state is read from the TSP word:
+//   * shading instruction -> sceGuTexFunc: decal GU_TFX_REPLACE, modulate GU_TFX_MODULATE with the
+//     vertex alpha forced to 1 (the hardware takes the alpha from the texture alone), decal alpha
+//     GU_TFX_DECAL, modulate alpha GU_TFX_MODULATE. "Ignore texture alpha" selects GU_TCC_RGB,
+//     whose alpha is the vertex's, and forces that to 1 where the hardware's would be the texel's.
+//   * filter mode -> GU_NEAREST for point sampling, GU_LINEAR otherwise (trilinear has no mipmaps
+//     here and becomes bilinear).
+//   * clamp -> GU_CLAMP; a polygon whose coordinates never leave the unit square is clamped too
+//     (dream::render::polygon_tiles), so bilinear filtering at its edge does not fetch the opposite
+//     edge. Mirroring is done in the image (see texture_psp.cpp) and sampled with GU_REPEAT.
+//   * SrcInstr/DstInstr -> sceGuBlendFunc, see ge_blend_factor. All eight PowerVR factors exist
+//     on the GE; the secondary accumulation buffer (SrcSelect/DstSelect) does not and is ignored.
+// Not drawn: the offset (specular) colour, fog and colour clamp, which the GE's fixed function has
+// no place for in through mode.
 //
 // eDRAM layout (2 MB): two 512x272 RGBA8888 colour buffers (544 KB each) and a 16-bit depth
 // buffer (272 KB). Each render is drawn into the back buffer, waited for, and swapped in, so the
@@ -18,6 +32,7 @@
 #include "dream/render/display_list.h"
 #include "dream/render/tsp.h"
 #include "host.h"
+#include "texture_psp.h"
 
 namespace ikaruga::host {
 
@@ -31,12 +46,14 @@ constexpr float kScaleX = 480.0f / 640.0f, kScaleY = 272.0f / 480.0f;
 alignas(64) std::uint32_t g_list[256 * 1024];
 constexpr int kStripListBytes = 256;
 
-// GU_COLOR_8888 | GU_VERTEX_32BITF: colour first, then x, y, z.
+// GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF: u, v, colour, then x, y, z. In through
+// mode u and v are in texels of the bound image.
 struct GeVertex {
+    float u, v;
     std::uint32_t colour;  // 0xAABBGGRR
     float x, y, z;
 };
-constexpr int kVertexType = GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D;
+constexpr int kVertexType = GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D;
 
 std::vector<GeVertex> g_vertices;
 bool g_ready = false;
@@ -48,6 +65,7 @@ std::uint32_t g_back = 0;
 
 // ISP/TSP instruction word fields (the same ones the Vulkan backend reads).
 constexpr std::uint32_t isp_depth_mode(std::uint32_t isp) { return (isp >> 29) & 7u; }
+constexpr bool pcw_texture(std::uint32_t pcw) { return ((pcw >> 3) & 1u) != 0; }
 constexpr bool isp_z_write_disable(std::uint32_t isp) { return ((isp >> 26) & 1u) != 0; }
 
 // PowerVR depth compare (on 1/w, larger is nearer) to the GE's, whose depth also grows nearer.
@@ -125,6 +143,8 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
         const dream::render::Polygon* poly;
         float depth;
         bool blended, alpha_test;
+        const GeTexture* tex;
+        int tfx, tcc, filter, wrap_u, wrap_v;
     };
     std::vector<Item> items;
     items.reserve(frame.polygon_count());
@@ -133,7 +153,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             float nearest = 0.0f;
             for (std::uint32_t i = 0; i < p.count; ++i)
                 nearest = std::max(nearest, frame.vertices[p.first + i].z);
-            items.push_back({&p, nearest, blended, alpha_test});
+            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0});
         }
     };
     add_list(dream::render::ListType::Opaque, false, false);
@@ -144,15 +164,46 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
     std::stable_sort(items.begin() + static_cast<std::ptrdiff_t>(translucent_start), items.end(),
                      [](const Item& a, const Item& b) { return a.depth < b.depth; });
 
-    // Vertices converted once, per polygon, since the alpha a vertex carries depends on its
-    // polygon's TSP word.
+    // Vertices converted once, per polygon, since the alpha a vertex carries and the scale of its
+    // texture coordinates depend on its polygon's TSP word and texture.
     g_vertices.resize(frame.vertices.size());
-    for (const Item& item : items) {
+    for (Item& item : items) {
         const auto& p = *item.poly;
-        const bool use_alpha = dream::render::tsp_use_alpha(p.tsp) != 0;
+        const std::uint32_t tsp = p.tsp;
+        bool force_opaque_vertex = false;
+        float us = 0.0f, vs = 0.0f;
+        if (g_enabled && pcw_texture(p.pcw)) {
+            const bool tiles = dream::render::polygon_tiles(frame, p);
+            const bool clamp_u = dream::render::tsp_clamp_u(tsp) || !tiles;
+            const bool clamp_v = dream::render::tsp_clamp_v(tsp) || !tiles;
+            const bool mirror_u = !clamp_u && dream::render::tsp_flip_u(tsp);
+            const bool mirror_v = !clamp_v && dream::render::tsp_flip_v(tsp);
+            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v);
+            if (item.tex) {
+                const unsigned shading = dream::render::tsp_shading_instruction(tsp);
+                const bool ignore_ta = dream::render::tsp_ignore_texture_alpha(tsp) != 0;
+                static const int kTfx[4] = {GU_TFX_REPLACE, GU_TFX_MODULATE, GU_TFX_DECAL,
+                                            GU_TFX_MODULATE};
+                item.tfx = kTfx[shading & 3u];
+                item.tcc = ignore_ta ? GU_TCC_RGB : GU_TCC_RGBA;
+                // Decal and modulate take their alpha from the texel alone: with GU_TCC_RGBA the
+                // GE multiplies it by the vertex alpha, so that is 1; with GU_TCC_RGB the alpha is
+                // the vertex's, and the hardware's would be the (ignored, so 1) texel alpha.
+                force_opaque_vertex = shading <= 1;
+                item.filter = dream::render::tsp_filter_mode(tsp) == 0 ? GU_NEAREST : GU_LINEAR;
+                item.wrap_u = clamp_u ? GU_CLAMP : GU_REPEAT;
+                item.wrap_v = clamp_v ? GU_CLAMP : GU_REPEAT;
+                us = item.tex->u_scale;
+                vs = item.tex->v_scale;
+                ++stats.textured;
+            }
+        }
+        const bool use_alpha = dream::render::tsp_use_alpha(tsp) != 0 && !force_opaque_vertex;
         for (std::uint32_t i = 0; i < p.count; ++i) {
             const dream::render::Vertex& v = frame.vertices[p.first + i];
             GeVertex& o = g_vertices[p.first + i];
+            o.u = v.u * us;
+            o.v = v.v * vs;
             o.colour = argb_to_abgr(v.base, use_alpha);
             o.x = v.x * kScaleX;
             o.y = v.y * kScaleY;
@@ -173,6 +224,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
         sceGuDisable(GU_DEPTH_TEST);
     const unsigned ref = static_cast<unsigned>(std::clamp(alpha_ref, 0.0f, 1.0f) * 255.0f);
     sceGuAlphaFunc(GU_GEQUAL, static_cast<int>(ref), 0xFF);
+    sceGuDisable(GU_TEXTURE_2D);
+    const void* bound = nullptr;
+    bool texturing = false;
     if (g_enabled) {
         for (const Item& item : items) {
             // Room for one strip's state and draw plus the closing commands; the rest of the
@@ -197,6 +251,25 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             } else {
                 sceGuDisable(GU_BLEND);
             }
+            if (item.tex) {
+                if (!texturing) {
+                    sceGuEnable(GU_TEXTURE_2D);
+                    texturing = true;
+                }
+                if (item.tex->pixels != bound) {
+                    sceGuTexMode(item.tex->format, 0, 0, GU_TRUE);
+                    sceGuTexImage(0, item.tex->width, item.tex->height, item.tex->width,
+                                  item.tex->pixels);
+                    sceGuTexFlush();
+                    bound = item.tex->pixels;
+                }
+                sceGuTexFunc(item.tfx, item.tcc);
+                sceGuTexFilter(item.filter, item.filter);
+                sceGuTexWrap(item.wrap_u, item.wrap_v);
+            } else if (texturing) {
+                sceGuDisable(GU_TEXTURE_2D);
+                texturing = false;
+            }
             if (item.alpha_test)
                 sceGuEnable(GU_ALPHA_TEST);
             else
@@ -207,16 +280,17 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             if (g_trace) {
                 const GeVertex& v0 = g_vertices[p.first];
                 g_trace("strip list %d n %u isp %08x tsp %08x func %d mask %d colour %08x "
-                        "x %.1f y %.1f z %.1f",
+                        "x %.1f y %.1f z %.1f tcw %08x tex %d",
                         item.blended ? 2 : (item.alpha_test ? 4 : 0), p.count, p.isp, p.tsp,
                         ge_depth_func(isp_depth_mode(p.isp)),
                         (item.blended || isp_z_write_disable(p.isp)) ? 1 : 0, v0.colour, v0.x,
-                        v0.y, v0.z);
+                        v0.y, v0.z, p.tcw, item.tex ? item.tex->format : -1);
             }
         }
     }
     sceGuDisable(GU_BLEND);
     sceGuDisable(GU_ALPHA_TEST);
+    sceGuDisable(GU_TEXTURE_2D);
     sceGuDepthMask(GU_FALSE);
     stats.list_bytes = static_cast<std::uint32_t>(sceGuCheckList());
     stats.list_capacity = sizeof g_list;
@@ -232,6 +306,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height) {
     if (!g_ready)
         return false;
+    // The copy needs ~1 MB of heap, which the texture cache may be holding: the render on screen
+    // is finished, so its textures can go.
+    texcache_release_all();
     static std::vector<std::uint32_t> copy;
     copy.assign(static_cast<std::size_t>(kStride) * kHeight + 16, 0);
     auto* dst = reinterpret_cast<std::uint32_t*>(
