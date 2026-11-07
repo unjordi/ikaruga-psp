@@ -110,7 +110,7 @@ void log_line(const char* fmt, ...) {
 //   profundidad=0     draw with the depth test off
 //   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
 //   texturas=0        draw textured polygons in their vertex colour only
-//   texturas_kb=N     cap of the texture cache in KB (default 2048)
+//   texturas_kb=N     cap of the texture cache in KB (default 2560)
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -123,7 +123,7 @@ struct Config {
     bool depth = true;
     bool dump_ta = false;
     bool textures = true;
-    std::uint32_t texture_kb = 2048;
+    std::uint32_t texture_kb = 2560;
 };
 
 std::string trimmed(const std::string& s) {

@@ -86,6 +86,31 @@ Título con páginas sucias: 0,1453 → 0,1458 (+0,3 %), draw 0,86 → 0,25 ms. 
 Las páginas sucias solas no llegan al 3 %; se conservan con el segundo cambio porque son las que
 quitan el hash de ~10 ms por render (hash_ms 10 522 → 410), y el par cumple el criterio.
 
+Los rechazos **no** bajaron con esto: over_budget sigue en 10 907 (todos entre los cuadros 1500 y
+1900; en el render capturado del 2600, rejected_this_render es 0). La demanda máxima de un solo
+render (`peak_demand`) es 2 445 440 B, más que el tope de 2 MB. Ver el cambio 4.
+
+### 3. A3 — FIPR/FTRV/FMAC en enteros exactos (revertido)
+
+Se probó la opción (c) de la revisión sin tocar el resultado: `exact_dot.h` evalúa FIPR/FTRV como
+la acumulación en `double` de la referencia (cada suma de double emulada con redondeo a 53 bits en
+el modo de FPSCR.RM) y FMAC como `fmaf`, todo en enteros de 64 bits, y cae al código de referencia
+en denormales, inf/NaN, cero o fuera de rango. Una prueba en PC con 8 M de entradas aleatorias por
+operación, en los dos modos de redondeo, dio 0 diferencias de bits (no se usó la VFPU ni `float`,
+así que la PSP seguiría escribiendo lo mismo que PC sin parche en el lado PC).
+
+| EBOOT | juego 2600 speed (2 corridas) | host_s |
+|---|---|---|
+| caché (`velocidad-cache2`) | 0,0517 / 0,0517 | 839,883 |
+| caché + A3 entero (`velocidad-exact2`) | 0,0516 / 0,0516 (−0,2 %) | 840,947 |
+
+Sin ganancia: con ~25 % de las operaciones cayendo al camino de referencia (contador
+`exact_declined`, ~2 900–6 200 por cuadro, sobre todo por ceros exactos en matrices/vectores) y el
+resto pagando ~60 operaciones enteras de 64 bits (que en MIPS32 también son emuladas en pares de
+registros), el costo queda igual al soft-double. Revertido; el parche y la prueba están fuera del
+repo. Las opciones (a) VFPU y (b) `float` cambian el último bit frente a PC y exigirían el mismo
+cambio en el binario de PC: no se hicieron en esta fila.
+
 ## RAM libre
 
 (pendiente)

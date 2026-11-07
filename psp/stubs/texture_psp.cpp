@@ -52,7 +52,7 @@ struct Entry {
 };
 
 bool g_enabled = true;
-std::uint32_t g_budget = 2u << 20;
+std::uint32_t g_budget = 2560u << 10;
 std::unordered_map<std::uint64_t, Entry> g_entries;
 TextureCacheStats g_stats;
 std::uint32_t g_render = 0;
