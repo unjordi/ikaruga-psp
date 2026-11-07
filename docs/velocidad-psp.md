@@ -176,6 +176,31 @@ evento por línea no coinciden, p. ej. el bit de VSync/blank entre eventos). Rev
 1 879 494 al cuadro 2580 (cada evento de línea cortaba un salto); no medí `sched/f` en esa corrida.
 Arreglarlo exige reproducir exactamente el `SPG_STATUS` por línea; queda pendiente.
 
+### A13 — excepciones (no tocado)
+
+Los contadores dan 3 `throw` por cuadro (4–13 por segundo de host) en el capítulo 1: aunque cada
+uno costara 1 ms, sería < 1,5 % del tiempo. No se cambió nada.
+
+## Resultado y pruebas de aceptación (EBOOT final = `nobios`, commit `a2750eb`)
+
+| prueba | resultado |
+|---|---|
+| (a) `medir-velocidad.sh`, juego 2600 | **0,0518x / 0,0518x — no llega a 0,105x** (develop 0,0405x: +28 %) |
+| (b) `test-psp-titulo.sh ... --todas` | PASS: título 28,43 dB; sin texturas 9,46 dB; contra cuadro 800 7,37 dB; las 8 pruebas (d) ok, `igual-pc` incluida |
+| (c) `test-psp-texturas-juego.sh --psnr-ref 10.35` | PASS: 0 rechazos (over_budget + render); PSNR 10,35 dB = develop 10,35 dB; contraprueba `texturas_kb=2048`: 10 907 rechazos |
+
+Qué limita la meta: con la caché arreglada el dibujo es ~7–11 ms por render y el resto es CPU del
+guest. El diagnóstico `float` muestra que FIPR/FTRV/FMAC en soft-double son ~43 % del tiempo del
+capítulo 1 (0,0518 → 0,0902), pero quitar el double cambia el `write_hash` frente a PC; la versión
+exacta en enteros no gana nada. Lo siguiente con más palanca: A3 con la VFPU o `float` aplicado
+**también al binario de PC** (decisión del dueño: cambia la referencia), y A6a con un
+`SPG_STATUS` exacto (+3,3 % medido, hoy rompe la igualdad con PC). Aun sumando ambos (~0,093x) faltaría
+algo más (A4/A10/A11 de la revisión).
+
+Evidencia (no está en el repo; el sandbox no dejó escribir en `ajenos/ikaruga-tareas/fila9-evidencia`):
+`build/fila9-evidencia/` del worktree: `velocidad-*/resumen.txt` y `psp.log` de cada corrida,
+`texturas-develop.out`, `texturas-final.out`, `titulo-todas.out`.
+
 ## RAM libre
 
 Línea `memory:` del log al capturar el cuadro 2600 (heap de newlib; `largest_block_kb` se mide
@@ -192,4 +217,16 @@ de ~2 MB para la copia RGBA temporal de la decodificación (hasta 2 MB para 512�
 
 ## Qué NO verifiqué
 
-(pendiente)
+- Todo es PPSSPP, nada en una PSP-3001 real: el reloj emulado no reproduce el costo real de
+  caché/memoria; los porcentajes pueden ser distintos en hardware.
+- La velocidad del título con el EBOOT final no la volví a medir (solo con páginas sucias:
+  0,1458x); el cambio del búfer de ROM no debería tocarla, pero no está medido.
+- El PSNR del cuadro 2600 es 10,35 dB en develop y en el final: es bajo porque la geometría ya
+  difiere del PC (fila 5c); que no baje no prueba que las texturas antes rechazadas se vean bien,
+  solo que la caché ya no las rechaza. No revisé la imagen a ojo.
+- `DREAM_NO_BIOS_IMAGE`: supuse que nada lee la ROM de arranque con la BIOS HLE (solo
+  `boot_main.cpp` del PC la llena); si el juego leyera el área 0 < 2 MB vería ceros, igual que antes.
+- El costo propio de los contadores A9 no se midió por separado.
+- El parche de páginas sucias marca solo escrituras que pasan por `DcMemory::resolve`; si algún
+  camino escribiera VRAM con `vram()` directo, la caché no se enteraría (no encontré ninguno en el
+  runtime parchado).
