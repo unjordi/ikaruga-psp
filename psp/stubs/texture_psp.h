@@ -7,8 +7,10 @@
 //     video memory and unpacks palette memory.
 //   * texcache_get() returns the GE image for one (tcw, tsp size, mirroring) or nullptr when the
 //     texture cannot be decoded, does not fit the budget, or textures are off. A cached image is
-//     re-validated once per render by hashing the guest bytes it was decoded from (and the palette
-//     entries it uses), so a guest that rewrites that video memory or palette gets a fresh decode.
+//     re-validated once per render: its palette entries are hashed, and its video memory is
+//     hashed again only when one of its 4 KB pages was written since it was last validated (the
+//     page stamps come from the runtime's VRAM write tracking). Without page stamps every image
+//     is hashed every render. Either way a guest that rewrites the bytes gets a fresh decode.
 //   * Pointers stay valid until the next texcache_begin_frame(): eviction only happens there or
 //     while building a texture, and never frees an image the current render already handed out.
 #pragma once
@@ -38,12 +40,23 @@ struct TextureCacheStats {
     std::uint32_t evicted = 0;      // images dropped to stay under the budget
     std::uint32_t failed = 0;       // textures the decoder rejected
     std::uint32_t over_budget = 0;  // requests refused because the render alone exceeds the cap
+    std::uint32_t requests = 0;     // texcache_get calls with the cache enabled
+    std::uint32_t hits = 0;         // of those, answered with an image already held and valid
+    std::uint32_t rehashed = 0;     // validations that had to hash video memory
+    std::uint32_t render_over_budget = 0;  // over_budget during the current render only
+    std::uint32_t render_demand = 0;  // bytes the images asked for in the current render need
+    std::uint32_t render_images = 0;  // distinct images asked for in the current render
+    std::uint32_t peak_demand = 0;    // largest render_demand seen
     std::uint64_t hash_us = 0, decode_us = 0;  // time spent validating and building
 };
 
 void texcache_configure(bool enabled, std::uint32_t budget_bytes);
+// page_epoch[i] is the write epoch of VRAM page i (4 KB, 64-bit view offsets); `epoch` is the
+// epoch writes made before this call carry. The caller then moves the runtime to epoch + 1, so
+// writes during or after this render stamp a higher value. page_epoch may be null.
 void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
-                          const std::uint32_t* palette_ram, unsigned palette_format);
+                          const std::uint32_t* palette_ram, unsigned palette_format,
+                          const std::uint32_t* page_epoch = nullptr, std::uint32_t epoch = 0);
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v);
 TextureCacheStats texcache_stats();
 // Frees every cached image (the GE must be done with them); the next render decodes again.

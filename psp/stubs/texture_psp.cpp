@@ -46,12 +46,13 @@ struct Entry {
     std::uint32_t bytes = 0;
     std::uint32_t source_hash = 0, palette_hash = 0;
     std::uint32_t checked = 0;  // the render the hashes were last compared in
+    std::uint32_t epoch = 0;    // the VRAM write epoch source_hash is valid for
     std::uint32_t used = 0;     // the last render that asked for it
     bool failed = false;
 };
 
 bool g_enabled = true;
-std::uint32_t g_budget = 2u << 20;
+std::uint32_t g_budget = 2560u << 10;
 std::unordered_map<std::uint64_t, Entry> g_entries;
 TextureCacheStats g_stats;
 std::uint32_t g_render = 0;
@@ -59,6 +60,9 @@ const std::uint8_t* g_vram = nullptr;
 std::size_t g_vram_size = 0;
 unsigned g_palette_format = 0;
 std::uint32_t g_palette[1024];
+const std::uint32_t* g_page_epoch = nullptr;
+std::uint32_t g_epoch = 0;
+constexpr unsigned kPageShift = 12;
 
 std::uint32_t hash_bytes(const std::uint8_t* p, std::size_t n, std::uint32_t h) {
     std::size_t i = 0;
@@ -85,6 +89,21 @@ std::size_t source_span(const TextureInfo& info) {
 
 std::uint32_t source_hash(const TextureInfo& info) {
     return hash_bytes(g_vram + info.address, source_span(info), 0x811C9DC5u);
+}
+
+// True when a page the texture reads was written after `since`, or when pages are not tracked.
+bool source_dirty(const TextureInfo& info, std::uint32_t since) {
+    if (!g_page_epoch)
+        return true;
+    const std::size_t span = source_span(info);
+    if (span == 0)
+        return false;
+    const std::size_t first = info.address >> kPageShift;
+    const std::size_t last = (info.address + span - 1) >> kPageShift;
+    for (std::size_t p = first; p <= last; ++p)
+        if (g_page_epoch[p] > since)
+            return true;
+    return false;
 }
 
 std::uint32_t palette_hash(const TextureInfo& info) {
@@ -163,6 +182,19 @@ bool make_room(std::uint32_t bytes) {
 // Decodes, mirrors, reduces, packs and swizzles `e.info` into a new image.
 bool build(Entry& e, bool mirror_u, bool mirror_v) {
     const std::uint64_t t0 = clock_us();
+    // Room first: a request that cannot fit is refused before paying for the decode.
+    {
+        int w = static_cast<int>(e.info.width) * (mirror_u ? 2 : 1);
+        int h = static_cast<int>(e.info.height) * (mirror_v ? 2 : 1);
+        while (w > kMaxSide) w /= 2;
+        while (h > kMaxSide) h /= 2;
+        const std::uint32_t need =
+            static_cast<std::uint32_t>(w * h * (ge_format(e.info) == GU_PSM_8888 ? 4 : 2));
+        if (!make_room(need)) {
+            ++g_stats.over_budget, ++g_stats.render_over_budget;
+            return false;
+        }
+    }
     // The decoder's RGBA8888 copy is temporary but large (2 MB for 512x1024), and the heap has
     // little to spare: when it cannot be had, images the current render has not handed out are
     // dropped and the decode is tried once more; failing that, the polygon draws untextured.
@@ -183,7 +215,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         }
     }
     if (!decoded) {
-        ++g_stats.over_budget;
+        ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
     const int w = static_cast<int>(e.info.width), h = static_cast<int>(e.info.height);
@@ -196,7 +228,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     const int bpp = format == GU_PSM_8888 ? 4 : 2;
     const std::uint32_t bytes = static_cast<std::uint32_t>(iw * ih * bpp);
     if (!make_room(bytes)) {
-        ++g_stats.over_budget;
+        ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
     rgba.shrink_to_fit();
@@ -204,7 +236,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     if (!out && make_room(g_budget))
         out = static_cast<std::uint8_t*>(memalign(16, bytes));
     if (!out) {
-        ++g_stats.over_budget;
+        ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
     const auto texel = [&](int x, int y) {
@@ -276,8 +308,14 @@ void texcache_configure(bool enabled, std::uint32_t budget_bytes) {
 }
 
 void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
-                          const std::uint32_t* palette_ram, unsigned palette_format) {
+                          const std::uint32_t* palette_ram, unsigned palette_format,
+                          const std::uint32_t* page_epoch, std::uint32_t epoch) {
     ++g_render;
+    g_stats.render_over_budget = 0;
+    g_stats.render_demand = 0;
+    g_stats.render_images = 0;
+    g_page_epoch = page_epoch;
+    g_epoch = epoch;
     g_vram = vram;
     g_vram_size = vram_size;
     g_palette_format = palette_format & 3u;
@@ -289,6 +327,7 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v) {
     if (!g_enabled || !g_vram)
         return nullptr;
+    ++g_stats.requests;
     const std::uint64_t key = (static_cast<std::uint64_t>(tcw) << 32) | (tsp & 0x3Fu) |
                               (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u);
     auto it = g_entries.find(key);
@@ -304,10 +343,27 @@ const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_
     Entry& e = it->second;
     if (e.failed)
         return nullptr;
+    if (e.used != g_render) {
+        // Size the GE image will have (mirrored, reduced to 512, 16 or 32 bits per texel).
+        int w = static_cast<int>(e.info.width) * (mirror_u ? 2 : 1);
+        int h = static_cast<int>(e.info.height) * (mirror_v ? 2 : 1);
+        while (w > kMaxSide) w /= 2;
+        while (h > kMaxSide) h /= 2;
+        g_stats.render_demand +=
+            static_cast<std::uint32_t>(w * h * (ge_format(e.info) == GU_PSM_8888 ? 4 : 2));
+        ++g_stats.render_images;
+        g_stats.peak_demand = std::max(g_stats.peak_demand, g_stats.render_demand);
+    }
     e.used = g_render;
     if (e.checked != g_render) {
         const std::uint64_t t0 = clock_us();
-        const std::uint32_t sh = source_hash(e.info), ph = palette_hash(e.info);
+        std::uint32_t sh = e.source_hash;
+        if (!e.memory || source_dirty(e.info, e.epoch)) {
+            sh = source_hash(e.info);
+            ++g_stats.rehashed;
+        }
+        const std::uint32_t ph = palette_hash(e.info);
+        e.epoch = g_epoch;
         g_stats.hash_us += clock_us() - t0;
         if (e.memory && (sh != e.source_hash || ph != e.palette_hash)) {
             release(e);
@@ -317,7 +373,11 @@ const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_
         e.palette_hash = ph;
         e.checked = g_render;
     }
-    if (!e.memory && !build(e, mirror_u, mirror_v))
+    if (e.memory) {
+        ++g_stats.hits;
+        return &e.tex;
+    }
+    if (!build(e, mirror_u, mirror_v))
         return nullptr;
     return &e.tex;
 }

@@ -1,0 +1,36 @@
+Optional boot ROM image (-DDREAM_NO_BIOS_IMAGE): with the HLE BIOS nothing loads a ROM image,
+so the 2 MB zero-filled buffer is not allocated; area-0 ROM reads give zero (as the empty
+buffer did) and writes are dropped. The PSP build uses the 2 MB for the texture cache.
+Effect on PC: none unless the macro is defined.
+
+diff --git a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
+index 5ce4bb5..c7cf02a 100644
+--- a/runtime/src/mem/dc_memory.cpp
++++ b/runtime/src/mem/dc_memory.cpp
+@@ -114,7 +114,11 @@ DcMemory::DcMemory()
+     : ram_(new std::uint8_t[kRamSize]()),
+       vram_(new std::uint8_t[kVramSize]()),
+       aram_(new std::uint8_t[kAramSize]()),
++#ifdef DREAM_NO_BIOS_IMAGE
++      bios_(),
++#else
+       bios_(new std::uint8_t[kBiosSize]()),
++#endif
+       flash_(new std::uint8_t[kFlashSize]()),
+       ocram_(new std::uint8_t[kOcramSize]()) {}
+ 
+@@ -181,9 +185,14 @@ DcMemory::Target DcMemory::resolve(std::uint32_t a, unsigned size, bool write) {
+         case 0: {  // area 0: ROM, flash, registers, sound RAM
+             const std::uint32_t off = phys & 0x03FFFFFFu;
+             if (off < 0x00200000u) {
++#ifdef DREAM_NO_BIOS_IMAGE
++                // No boot ROM image is loaded (HLE BIOS): reads give zero, writes are dropped.
++                return t;
++#else
+                 t.kind = Target::kBytes;
+                 t.bytes = bios_.get() + off;
+                 return t;
++#endif
+             }
+             if (off < 0x00400000u) {
+                 t.kind = Target::kBytes;
