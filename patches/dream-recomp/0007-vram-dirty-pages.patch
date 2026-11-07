@@ -1,0 +1,40 @@
+VRAM write tracking for the PSP texture cache: every write resolved into VRAM stamps
+its 4 KB page(s) with DcMemory::vram_write_epoch, so the host revalidates only images
+whose pages were written. Effect on PC: two stores per VRAM write, nobody reads them.
+
+diff --git a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
+index 83f1e69..33b21fc 100644
+--- a/runtime/include/dream/runtime/mem/dc_memory.h
++++ b/runtime/include/dream/runtime/mem/dc_memory.h
+@@ -122,6 +122,12 @@ public:
+ 
+     std::uint8_t* ram() noexcept { return ram_.get(); }
+     std::uint8_t* vram() noexcept { return vram_.get(); }
++    // Write tracking for host texture caches: every write that resolves into VRAM stamps the
++    // 4 KB pages it touches (64-bit view offsets) with vram_write_epoch. The host advances the
++    // epoch; a page whose stamp is below the epoch an image was validated in is unchanged since.
++    static constexpr unsigned kVramPageShift = 12;
++    std::uint32_t vram_write_epoch = 1;
++    std::uint32_t vram_page_epoch[kVramSize >> kVramPageShift] = {};
+     std::uint8_t* aram() noexcept { return aram_.get(); }
+     std::uint8_t* bios() noexcept { return bios_.get(); }
+     std::uint8_t* flash() noexcept { return flash_.get(); }
+diff --git a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
+index 382f4e4..5ce4bb5 100644
+--- a/runtime/src/mem/dc_memory.cpp
++++ b/runtime/src/mem/dc_memory.cpp
+@@ -200,7 +200,13 @@ DcMemory::Target DcMemory::resolve(std::uint32_t a, unsigned size, bool write) {
+         case 1: {  // area 1: VRAM, 64-bit view at +0x0000000, 32-bit view at +0x1000000, mirrors
+             const std::uint32_t off = phys & 0x007FFFFFu;
+             t.kind = Target::kBytes;
+-            t.bytes = vram_.get() + ((phys & 0x01000000u) ? vram_map32(off) : off);
++            const std::uint32_t at = (phys & 0x01000000u) ? vram_map32(off) : off;
++            t.bytes = vram_.get() + at;
++            if (write) {
++                // Store-queue bursts write 32 bytes from here: stamp the last byte's page too.
++                vram_page_epoch[at >> kVramPageShift] = vram_write_epoch;
++                vram_page_epoch[((at + 31u) & (kVramSize - 1)) >> kVramPageShift] = vram_write_epoch;
++            }
+             return t;
+         }
+         case 3: {  // area 3: main RAM and its three mirrors

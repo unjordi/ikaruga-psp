@@ -3,7 +3,10 @@
 # PC launcher shows at a guest frame (the same one by default), with the same scripted presses.
 #   scripts/comparar-titulo.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml>
 #                              [--cuadro N] [--cuadro-pc M] [--sin-texturas] [--umbral DB]
-#                              [--salida DIR] [--reusar] [--segundos S]
+#                              [--salida DIR] [--reusar] [--segundos S] [--pulsar P]
+#                              [--cfg LINE]...
+# --pulsar P replaces the scripted presses on both sides; --cfg LINE adds LINE to the PSP's
+# ikaruga.cfg (repeatable).
 # PSP: PPSSPP runs the EBOOT with ikaruga.cfg = capturar_en=N, pulsar=start@700, rtc_seed=1 (and
 # texturas=0 with --sin-texturas); the EBOOT writes captura-N.raw (480x272 RGB888) and quits.
 # PC: ikaruga_boot --window --rtc-seed 1 --press start@700 --screenshot-at M (M defaults to N).
@@ -22,7 +25,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRESSES="start@700"
 cuadro=1243 cuadro_pc="" sin_texturas=0 umbral=25 salida="" reusar=0 segundos=""
-pos=()
+pos=() extra_cfg=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cuadro) cuadro="$2"; shift 2 ;;
@@ -32,12 +35,14 @@ while [[ $# -gt 0 ]]; do
     --salida) salida="$2"; shift 2 ;;
     --reusar) reusar=1; shift ;;
     --segundos) segundos="$2"; shift 2 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    --pulsar) PRESSES="$2"; shift 2 ;;
+    --cfg) extra_cfg+=("$2"); shift 2 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     -*) echo "unknown argument: $1" >&2; exit 2 ;;
     *) pos+=("$1"); shift ;;
   esac
 done
-[[ ${#pos[@]} -eq 4 ]] || { sed -n '3,6p' "$0" >&2; exit 2; }
+[[ ${#pos[@]} -eq 4 ]] || { sed -n '3,7p' "$0" >&2; exit 2; }
 EBOOT="$(realpath "${pos[0]}")" JUEGO="$(realpath "${pos[1]}")"
 BOOT="$(realpath "${pos[2]}")" TOML="$(realpath "${pos[3]}")"
 cuadro_pc="${cuadro_pc:-$cuadro}"
@@ -58,6 +63,7 @@ if [[ $reusar -eq 0 || ! -s "$PSP_RAW" ]]; then
     echo "pulsar=$PRESSES"
     echo "rtc_seed=1"
     [[ $sin_texturas -eq 1 ]] && echo "texturas=0"
+    for l in "${extra_cfg[@]}"; do echo "$l"; done
   } > "$OUT/ikaruga.cfg"
   start=$(date +%s)
   PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \

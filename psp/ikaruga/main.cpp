@@ -449,12 +449,13 @@ int main(int argc, char** argv) {
         const double rn = renders > mark.renders ? static_cast<double>(renders - mark.renders) : 1.0;
         log_line("perf: frames %" PRIu64 "-%" PRIu64 " fipr/f %.0f ftrv/f %.0f fmac/f %.0f "
             "throw/f %.1f throw/s %.0f sched/f %.0f tex_req/f %.0f tex_hit/f %.0f "
-            "tex_build/f %.2f tex_rej/f %.1f tex_ms/f %.2f draw_ms/render %.2f",
+            "tex_build/f %.2f tex_rej/f %.1f tex_rehash/f %.1f tex_ms/f %.2f draw_ms/render %.2f",
             mark.frame, f, (c.fipr - mark.c.fipr) / n, (c.ftrv - mark.c.ftrv) / n,
             (c.fmac - mark.c.fmac) / n, (c.throws - mark.c.throws) / n,
             (c.throws - mark.c.throws) / secs, (c.sched_events - mark.c.sched_events) / n,
             (t.requests - mark.t.requests) / n, (t.hits - mark.t.hits) / n,
             (t.decoded - mark.t.decoded) / n, (t.over_budget - mark.t.over_budget) / n,
+            (t.rehashed - mark.t.rehashed) / n,
             ((t.hash_us + t.decode_us) - (mark.t.hash_us + mark.t.decode_us)) / 1000.0 / n,
             (draw_us - mark.draw_us) / 1000.0 / rn);
         mark.frame = f;
@@ -475,7 +476,9 @@ int main(int argc, char** argv) {
         const float alpha_ref = static_cast<float>(pvr.reg(0x11C) & 0xFFu) / 255.0f;
         // Palette memory is at +0x1000 of the register block, its format in PAL_RAM_CTRL.
         host::texcache_begin_frame(sys.memory.vram(), dream::mem::DcMemory::kVramSize,
-            pvr.reg_block() + 0x1000 / 4, pvr.reg(0x108) & 3u);
+            pvr.reg_block() + 0x1000 / 4, pvr.reg(0x108) & 3u, sys.memory.vram_page_epoch,
+            sys.memory.vram_write_epoch);
+        ++sys.memory.vram_write_epoch;
         const bool last = cfg.capture_at && sys.spg.frames() >= cfg.capture_at;
         if (last && cfg.trace)
             host::video_set_trace(&log_line);
@@ -498,9 +501,10 @@ int main(int argc, char** argv) {
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32
                 " peak %" PRIu32 " budget %" PRIu32 " decoded %" PRIu32 " invalidated %" PRIu32
                 " evicted %" PRIu32 " failed %" PRIu32 " over_budget %" PRIu32 " hash_ms %.1f"
-                " decode_ms %.1f", st.textured, ts.entries, ts.bytes, ts.peak_bytes, ts.budget,
+                " decode_ms %.1f rejected_this_render %" PRIu32 " images_this_render %" PRIu32
+                " demand_this_render %" PRIu32 " peak_demand %" PRIu32, st.textured, ts.entries, ts.bytes, ts.peak_bytes, ts.budget,
                 ts.decoded, ts.invalidated, ts.evicted, ts.failed, ts.over_budget,
-                ts.hash_us / 1000.0, ts.decode_us / 1000.0);
+                ts.hash_us / 1000.0, ts.decode_us / 1000.0, ts.render_over_budget, ts.render_images, ts.render_demand, ts.peak_demand);
             log_perf(f);
             host::texcache_describe(&log_line);
             log_memory("memory");
