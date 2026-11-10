@@ -8,7 +8,10 @@
 #      (default third_party/dream-recomp); HASTA=<last frame> (default 600);
 #      RTC_SEED=<n> (default 1; the PSP gets it through ikaruga.cfg);
 #      PROBAR_CFG_EXTRA=<file> more ikaruga.cfg lines for the PSP run (debug keys);
-#      IGUAL_OUT=<dir> instead of build/psp/evidencia/igual-pc.
+#      IGUAL_OUT=<dir> instead of build/psp/evidencia/igual-pc;
+#      PULSAR=<presses> same scripted input on both (PC --press, PSP pulsar=), e.g. the chapter-1
+#      presses of medir-velocidad.sh; without input FTRV/FIPR results never reach memory before
+#      frame 600, so only PULSAR + HASTA>=1500 tells float from double (docs/velocidad-psp.md).
 # Logs: build/psp/evidencia/igual-pc/{pc-hash.txt,psp.log}.
 set -euo pipefail
 
@@ -16,7 +19,9 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ $# -ge 2 && $# -le 3 ]] || { sed -n '6p' "$0" >&2; exit 2; }
 EBOOT="$(realpath "$1")" JUEGO="$(realpath "$2")" SEGUNDOS="${3:-330}"
 DR="$(realpath "${DREAM_RECOMP:-$REPO/third_party/dream-recomp}")"
-HASTA="${HASTA:-600}" SEED="${RTC_SEED:-1}"
+HASTA="${HASTA:-600}" SEED="${RTC_SEED:-1}" PULSAR="${PULSAR:-}"
+pc_press=()
+[[ -n "$PULSAR" ]] && pc_press=(--press "$PULSAR")
 BOOT="$DR/build-rel/games/ikaruga/ikaruga_boot"
 CFG="$DR/games/ikaruga/ikaruga.toml"
 OUT="${IGUAL_OUT:-$REPO/build/psp/evidencia/igual-pc}"
@@ -26,11 +31,12 @@ mkdir -p "$OUT"
 
 echo "== PC: $HASTA frames, --rtc-seed $SEED"
 (cd "$OUT" && "$BOOT" --config "$CFG" --vmu pc.vmu --max-frames "$HASTA" --rtc-seed "$SEED" \
-  --no-audio --write-hash pc-hash.txt >pc.out 2>&1) || true
+  "${pc_press[@]}" --no-audio --write-hash pc-hash.txt >pc.out 2>&1) || true
 [[ -s "$OUT/pc-hash.txt" ]] || { echo "FAIL: the PC run wrote no hashes ($OUT/pc.out)" >&2; exit 1; }
 
 echo "== PSP: $SEGUNDOS s in PPSSPP, rtc_seed = $SEED"
 printf 'rtc_seed = %s\n' "$SEED" >"$OUT/ikaruga.cfg"
+[[ -n "$PULSAR" ]] && printf 'pulsar=%s\n' "$PULSAR" >>"$OUT/ikaruga.cfg"
 [[ -n "${PROBAR_CFG_EXTRA:-}" ]] && grep -v '^rtc_seed' "$PROBAR_CFG_EXTRA" >>"$OUT/ikaruga.cfg"
 PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
   "$SEGUNDOS" "$OUT/psp.log" >/dev/null 2>"$OUT/probar.err" || true
