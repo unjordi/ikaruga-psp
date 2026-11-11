@@ -4,6 +4,10 @@
 `sceCtrlPeekBufferPositive` (inicializado una vez con `sceCtrlSetSamplingCycle(0)` y
 `PSP_CTRL_MODE_ANALOG`). Lo convierte en un mando de Dreamcast en el bus Maple y lo combina con
 OR con las pulsaciones guionadas (`pulsar=`); las pruebas que usan `pulsar=` no cambian.
+El juego solo toma una pulsación que empieza cuando la pantalla ya acepta entrada: en el menú de modos
+(tras `start@700,start@1000,start@1200,a@1400,start@1600`) abajo en el 1680, 1700, 1720 o 1740 mueve el
+cursor; abajo en el 1660, aunque se sostenga 60 cuadros, no. Una prueba guionada pulsa después de que
+la pantalla esté lista y compara la captura contra la de sin pulsar.
 
 ## Mapeo por defecto y su fuente
 
