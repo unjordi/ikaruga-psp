@@ -11,7 +11,7 @@ Etiquetas: **CONFIRMADO** (abierto o corrido: dónde), **SEGÚN <fuente>**, **[I
 Rutas: `dr/…` = dream-recomp `51ca276`; `repo/…` = ikaruga-psp `develop`; `elf-Os` / `elf-O2` = esos ELF desensamblados
 con `psp-objdump -d -C` dentro de la imagen del toolchain. Las mediciones nuevas de esta revisión quedaron en
 `/tmp/rev-opt/` de la cachy (reportes y perfiles; contienen datos derivados del juego y no van a ningún repo).
-Ports de referencia: `sf64-psp`, `oot-psp` (citados en `repo/docs/diseno-psp.md`) y `shar-psp-engine` (GPL-3.0,
+Ports de referencia: `sf64-psp`, `oot-psp` (citados en el diseño, hoy `docs/plan.md`) y `shar-psp-engine` (GPL-3.0,
 `LICENSE` abierto: solo se describe el enfoque, no se copia código). `animal_forest_psp` lo abrí brevemente antes de que
 se borrara de la cachy; lo que cito de él es SEGÚN esa lectura y ya no se puede re-verificar.
 
@@ -42,7 +42,7 @@ se borrara de la cachy; lo que cito de él es SEGÚN esa lectura y ya no se pued
 
 ### 1.1 Tabla
 
-`diseno-psp.md` = `repo/docs/diseno-psp.md`. «Medido» cita el documento o la corrida de donde sale.
+`diseno-psp.md` = el diseño de la fila 1, absorbido en `docs/plan.md` (las filas de su tabla 1 son las piezas 1–13 citadas en los pasos). «Medido» cita el documento o la corrida de donde sale.
 
 | # | Supuesto del diseño | Cifra del diseño | Medido | Veredicto |
 |---|---|---|---|---|
@@ -385,7 +385,7 @@ directamente a vértices del GE) ahorra la copia y una pasada. Ganancia [INFER] 
 **B6. Texturas.** Decodificar a 16 bits (4444/5551/5650) o mantener paleta (CLUT del GE) cuando el origen es de paleta;
 VQ no existe en el GE y se decodifica; swizzle al subir; caché por dirección+palabra de control+hash, residente en eDRAM
 con LRU y respaldo en RAM. El juego sube poco: 3,6 MB de texturas por DMA en 80 s (CONFIRMADO, reporte `ch2 DMA`), así
-que la caché casi no se renueva. Diseño SEGÚN `diseno-psp.md` tabla 1 fila 3 y `oot-psp` `psp_texture_manager.c:221,335`.
+que la caché casi no se renueva. Diseño SEGÚN la pieza 3 del diseño (`docs/plan.md` paso 64) y `oot-psp` `psp_texture_manager.c:221,335`.
 
 **B7. Vértices en coordenadas de 16 bits** (`GU_VERTEX_16BIT` en modo 2D): mitad de memoria y de ancho de banda que
 `GU_VERTEX_32BITF`. Riesgo: precisión subpíxel (sin importancia a 480×272) [INFER]. Esfuerzo: bajo.
