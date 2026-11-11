@@ -32,53 +32,47 @@
     translúcida (atrás→adelante), como en 5c.
   - No se dibuja: color offset (especular), niebla y color clamp.
 - `ikaruga.cfg`: `texturas=0` apaga las texturas; `texturas_kb=N` fija el tope de la caché.
-- `scripts/comparar-titulo.sh` (PSNR RGB y error medio por canal, PC escalada 640×480→480×272 con
-  la misma transformación que los vértices: x·480/640, y·272/480, pantalla completa, filtro de
-  caja) y `scripts/test-psp-titulo.sh` (pruebas a, b, c; `--todas` añade d).
+- `scripts/comparar-titulo.sh` (captura de la PSP en el cuadro N y comparación con la serie de
+  Flycast por `scripts/comparar-flycast.sh --captura`: PSNR RGB y SSIM por región; Flycast se
+  escala 640×480→480×272 con la misma transformación que los vértices: x·480/640, y·272/480,
+  pantalla completa, filtro de caja) y `scripts/test-psp-titulo.sh` (pruebas a, b, c; `--todas`
+  añade d).
 
 ## El cuadro N
 
-Sin entrada, el PC **nunca llega al título**: de 300 a 4600 se queda en la pantalla de arranque
-(negro con el logo chico abajo a la derecha). Hace falta una pulsación: `start@700`. Barrido en PC
-(`ikaruga_boot --window --rtc-seed 1 --no-audio --press start@700 --screenshot-at n`, diferencia
-contra el cuadro 1500):
+Sin entrada, el juego **nunca llega al título**: se queda en la pantalla de arranque (negro con
+el logo chico abajo a la derecha). Hace falta una pulsación: `start@700` (en la PSP con
+`pulsar=start@700`; en Flycast, la tecla Return a los 700/60 s de abrir la ventana).
 
-| cuadros | escena |
+| cuadros de la PSP | escena |
 |---|---|
-| 730–900 | logo de TREASURE (otra escena; se usa 800 en la prueba c) |
-| 950–1100 | fundido a blanco |
-| 1210–1242 | entrada del título (diferencia media 80,8 → 1,5) |
-| **1243** | primer cuadro idéntico (diferencia 0) al título quieto |
+| 1210–1242 | entrada del título (fundido) |
+| **1243** | primer cuadro idéntico al título quieto |
 | 1260–1280, 1350, 1400 | parpadeo de «PRESS START BUTTON» (caja 175,334–462,345) |
 
-N = 1243 con `pulsar=start@700` en ambos lados. Es el único desvío respecto al enunciado («sin
-entrada»): sin esa pulsación no hay título que comparar.
+N = 1243. En la serie de Flycast el título quieto está en los índices ~176-200 (10 fps); la
+ventana de la prueba es 170-205 (`scripts/escenas-flycast.sh`).
 
 ## Resultados
 
-Variables: `E=build/psp/ikaruga/EBOOT.PBP`, `D=~/code/ajenos/dr-idle`,
-`G=$D/games/ikaruga/extracted`, `B=$D/build-rel/games/ikaruga/ikaruga_boot`,
-`C=$D/games/ikaruga/ikaruga.toml`, `PROBAR_DISCO=.../f8/build/DISCO-real.ISO`.
-Build: `scripts/build-psp-ikaruga.sh $D/build-rel/games/ikaruga/gen --variantes=mix` → imagen
-14,81 MB + guest 28,1 MB = 42,91 MB de ~52 MB.
+Variables: `E=build/psp/ikaruga/EBOOT.PBP`, `G=<dr-idle>/games/ikaruga/extracted`,
+`PROBAR_DISCO=.../DISCO-real.ISO`. Build: `scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen`.
 
-`scripts/test-psp-titulo.sh $E $G $B $C`:
+`scripts/test-psp-titulo.sh $E $G` (umbrales fijados antes de medir):
 
-| prueba | PSNR | error medio r/g/b | resultado |
+| prueba | valor | umbral | resultado |
 |---|---|---|---|
-| (a) PSP 1243 vs PC 1243, con texturas | **28,43 dB** | 3,86 / 3,04 / 2,69 | pasa (≥ 25) |
-| (b) igual con `texturas=0` | 9,46 dB | 45,24 / 61,07 / 72,93 | falla como debe; 18,97 dB menos que (a) |
-| (c) PSP 1243 vs PC 800 (logo) | 7,37 dB | 91,76 / 75,56 / 65,56 | < 25, discrimina |
+| (a) PSP 1243 vs Flycast (f178-199, plateau), con texturas | **28,31 dB / SSIM 0,962** | ≥ 25 dB y ≥ 0,85 | pasa |
+| (b) igual con `texturas=0` | 9,47 dB | < 25 dB | falla como debe |
+| (c) la captura de (a) vs la ventana de SELECT GAME MODE (250-312) | 9,94 dB | < 25 dB | discrimina |
 
-(d) con el EBOOT final, cada una por separado (un PPSSPP a la vez):
-`test-psp-{arranque,rtc,carpeta,vmu}.sh $E $G`, `test-psp-redondeo.sh`,
-`DREAM_RECOMP=$D test-psp-{salida-suspension,igual-pc}.sh $E $G` (write_hash PC↔PSP igual en
-60..600), `test-psp-geometria.sh $E $G $B $C` (IoU 0,6055, 947 polígonos en ambos): **las 8 pasan**.
+(d) con `--todas`, cada una de las demás pruebas de la PSP por separado (un PPSSPP a la vez):
+`test-psp-{arranque,rtc,carpeta,vmu,salida-suspension,igual-pc,geometria}.sh` y `test-psp-redondeo.sh`.
 
 Captura de la PSP (descrita, no subida): arte del título a color (la nave entre estelas
 naranjas y amarillas), el kanji 斑鳩 con «IKARUGA» en su recuadro, el menú («PRESS START BUTTON»,
 «DIFFICULTY/USER SELECT», «EXTEND/1ST 3,000,000», «EVERY 5,000,000», «PLAYER STOCK/3»), copyright y
-URL legibles; columnas negras a los lados como en PC. Sin cuadros negros ni costuras visibles.
+URL legibles; columnas negras a los lados como en Flycast. Sin cuadros negros ni costuras visibles.
 
 ### Texturas del título (log `texture:` del cuadro 1243)
 
