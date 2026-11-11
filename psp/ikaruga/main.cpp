@@ -639,11 +639,9 @@ int main(int argc, char** argv) {
     log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
         program.size(), kLoadAddress, disc->tracks().back().sectors);
 
-    // Saved state. The point is the head of kmWaitVBlank's wait loop (0x0C0370BA, an [idle] head
-    // with a resume label, docs/investigacion-pendientes.md section 23): no exception frame, no
-    // render half sent, and run_guest_from can start there. A turn where an interrupt is already
-    // due is passed over: the resumed function would take it on entry, before the poll the
-    // original run took it at. Same devices and order as the PC launcher's patch.
+    // Saved state at the head of kmWaitVBlank's wait loop, where run_guest_from can resume
+    // (docs/estado-guardado.md). A turn with an interrupt already due is skipped: the resumed
+    // function would take it before the poll where the original run took it.
     constexpr std::uint32_t kSavePc = 0x0C0370BAu;
     auto state_devices = [&](auto& io) {
         auto io1 = [&io](auto& dev) {

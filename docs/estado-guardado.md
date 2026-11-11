@@ -1,7 +1,7 @@
 # Estado guardado (pasos 23–25)
 
 Para qué: una prueba que mira el cuadro 2600 ya no tiene que emular desde el arranque. Se vuelca el
-estado completo de la máquina en el cuadro N y el EBOOT (o el lanzador de PC) arranca desde ahí,
+estado completo de la máquina en el cuadro N y el EBOOT arranca desde ahí,
 con el mismo resultado que una corrida desde el arranque.
 
 ## Cómo se usa
@@ -31,15 +31,12 @@ El cfg de la carga tiene que repetir lo que afecta al guest después del cuadro 
 mismo `rtc_seed` (el reloj del AICA sí va en el estado; la semilla solo importa al arrancar). Las
 claves de depuración del host (`hash_every`, `capturar_en`, `dibujar_desde`…) son libres.
 
-**PC** (lanzador parcheado, `patches/dream-recomp-pc/0003-saved-state.patch`):
-`--save-state-at N FILE` y `--load-state FILE`, con las mismas reglas.
-
 ## Punto de volcado
 
 `System::before_idle` (nuevo) se llama al principio de `System::on_idle`, es decir en cada
 `idle_poll` del código generado. El host vuelca cuando `pc == 0x0C0370BA` (cabeza de la espera de
 `kmWaitVBlank`, `docs/investigacion-pendientes.md` §23), `spg.frames() >= N`, `nesting == 0` y
-`c.cycles < c.next_event`. La última condición la añadí: si ya hay una interrupción vencida, la
+`c.cycles < c.next_event`. La última condición: si ya hay una interrupción vencida, la
 función reanudada (`kmWaitVBlank__resume`) la atendería en su sondeo de entrada, antes que el
 sondeo donde la tomó la corrida original; esa vuelta se salta y se vuelca en la siguiente.
 
@@ -78,14 +75,6 @@ dibujar; las épocas de VRAM sí van), estado del vídeo del host.
 
 Pulsaciones del capítulo 1 (las de `test-psp-igual-pc-double.sh`), `rtc_seed 1`.
 
-**PC, build `double`** (`build/pc/src/build-dbl`, `ikaruga_boot` con los parches PC 0001–0003):
-
-- 0→2600 con `--write-hash` y `--save-state-at 600`: 4,3 s de pared, volcado de 27 612 700 B.
-- `--load-state` 600→2600: 3,5 s. Líneas `write_hash` 601…2600 (2 001 líneas, ciclos incluidos)
-  **idénticas** (`diff` vacío).
-- Contraprueba: el plazo de `aica.sample` del volcado +1 000 ciclos → difieren 2 000 de 2 000
-  cuadros, desde el 601.
-
 **PSP en PPSSPP sin limitador** (`DISCO-real.ISO`):
 
 | build | corrida | pared | resultado |
@@ -101,8 +90,13 @@ Cargar el estado cuesta ≈2,9 s dentro del EBOOT (leer 27,6 MB por el sistema d
 PPSSPP); el resto de los 8 s es arrancar PPSSPP y el EBOOT. La corrida `double` es más lenta que
 la `float` porque FIPR/FTRV van en `double` por software.
 
-**Arranque normal sin estado** (`float`, sin `guardar_`/`cargar_estado`):
-`HASTA=600 scripts/test-psp-igual-pc.sh` → ok, iguales los 10 cuadros 60…600 (13 s).
+Repetido en la revisión, con los EBOOT recompilados desde esta rama: CONFIRMADO cada fila de la
+tabla (`double` 600→2600: 2 000 `hash` iguales y captura idéntica; contraprueba: 2 000 de 2 000
+distintos, la captura del 2600 no cambia porque el plazo del AICA no toca el vídeo; `float` 2590→2600:
+10 iguales y captura idéntica). Además, `float` 0→2600 con `guardar_estado_en=2590` y sin él dan los
+mismos 2 600 `hash`: volcar no altera la corrida.
+
+**Arranque normal sin estado**: `test-psp-igual-pc-double.sh` con el EBOOT `double` de esta rama → igual en cada cuadro 1…2600.
 
 ## Qué NO verifiqué y dónde está mi punto ciego
 
@@ -111,12 +105,8 @@ la `float` porque FIPR/FTRV van en `double` por software.
   pendiente; los campos están en el estado pero ninguna prueba los ejerce con valores no triviales
   que sepa.
 - El orden de registro de los eventos del scheduler se comprueba por nombre; si un host registra
-  un evento más (p. ej. el `sampler` del PC con `--sample-every`), la carga falla en vez de
-  adaptarse.
+  un evento más, la carga falla en vez de adaptarse.
 - La VMU: el estado restaura la imagen en memoria, no el archivo. Si entre el volcado y la carga
   cambia `VMU.BIN`, la siguiente escritura del juego mezcla los dos.
 - No medí el estado en hardware real ni con limitador; no comparé contra Flycast (no hacía falta:
   la captura es idéntica bit a bit a la de la corrida desde el arranque).
-- El parche PC 0003 incluye también las partes de los parches PSP 0005 (escritor de la VMU) y 0007
-  (épocas de VRAM) que `state.cpp` necesita; no revisé si cambian algo del lanzador de PC más allá
-  de eso (los hashes PC 0…600 siguen iguales a los de la PSP).
