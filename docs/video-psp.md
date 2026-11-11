@@ -89,6 +89,11 @@ Además, con el mismo EBOOT: `DREAM_RECOMP=$D scripts/test-psp-igual-pc.sh $E $G
 `scripts/test-psp-arranque.sh $E $G` (resultado abajo). El video solo lee estado del guest (no hay
 render a textura que escriba VRAM), así que el write_hash no debería moverse.
 
+```
+ok: PC and PSP write_hash equal at 10 frames (60..600)      # test-psp-igual-pc.sh, rc 0
+ok: 5 distinct guest PCs over 7 log lines                   # test-psp-arranque.sh, rc 0
+```
+
 ## Qué NO verifiqué y dónde está mi punto ciego
 
 - **PSP-3001 real**: todo es PPSSPP. Las dos pasadas con `EQUAL` dependen de que el GE dé
