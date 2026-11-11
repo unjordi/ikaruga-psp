@@ -357,7 +357,7 @@ de sonda en el arranque.
 | Línea base título 1243 (develop) | 0,1453 | no remedido | ídem |
 | Juego 2600 (EBOOT final) | 0,0869, host_s 499,355 | **0,0869**, host_s 499,346, draw_ms_per_render 7,63 | igual: la sonda no cuesta |
 | Título 1243 (EBOOT final) | 0,1458, host_s 142,375 | **0,1458**, host_s 142,369 | igual |
-| Tramo título 300–1380 (host_s/60) | 6,3–6,4; ftrv 3, fmac 4–154, fipr 0 | 5,6–6,4; ftrv 3, fmac 2–154, fipr 0 | igual (la corrida de juego, mismos cuadros) |
+| Tramo título 300–1380 (host_s/60) | 6,3–6,4; ftrv 3, fmac 4–154, fipr 0 | 5,6–6,6 (corrida de juego; en la de título 5,6–6,4); ftrv 3, fmac 2–154, fipr 0 | igual dentro del ruido |
 | Tramo juego 1500–1860 | 12,2–12,5; ftrv 5 197 | 12,2–12,5; ftrv 5 196–5 198, fmac 7 504–7 715, fipr 2 334 | igual |
 | Tramo juego 2040–2600 | 14,0–23,5 | 14,0–23,5 (ventana 1980–2040: 24,0); ftrv 5 830–14 942, fmac 10 893–26 153, fipr 4 526–20 419 | igual |
 | throw por cuadro | 3–8 | 3–8 | igual |
