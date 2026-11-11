@@ -14,6 +14,7 @@ modified.
 | `0006-perf-counters.patch` | `dream::perf::counters` (`perf.h`): FIPR/FTRV/FMAC executed, `NonLocalReturn` thrown, scheduler callbacks run, for the per-frame `perf:` log line. Compiled in only with `-DDREAM_PERF_COUNTERS` (the PSP Makefile sets it). | none (macro unset: `DREAM_PERF_INC` is empty) |
 | `0007-vram-dirty-pages.patch` | Every write `DcMemory::resolve` sends to VRAM stamps its 4 KB page(s) with `vram_write_epoch`, so `psp/stubs/texture_psp.cpp` re-hashes only images whose pages were written. | two stores per VRAM write, nothing reads them |
 | `0008-optional-bios-image.patch` | With `-DDREAM_NO_BIOS_IMAGE` the 2 MB zero-filled boot ROM buffer is not allocated (the HLE BIOS never loads one); ROM reads give zero, writes are dropped. The PSP spends those 2 MB on the texture cache. | none unless the macro is defined |
+| `0009-fpu-float.patch` | FMAC, FIPR and FTRV in single-precision `float` (one product and one sum at a time, left to right, no FMA); `-DDREAM_FPU_DOUBLE=1` restores the upstream fused/double code. Same block as `patches/dream-recomp-pc/0002-…` so PC and PSP run identical code (docs/velocidad-psp.md, fila 9b). | changes what the game writes vs. upstream double, on PC too |
 
 Flags instead of patches (`psp/ikaruga/Makefile`):
 
