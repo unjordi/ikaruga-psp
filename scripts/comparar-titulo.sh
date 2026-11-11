@@ -82,7 +82,7 @@ PC_PPM="$OUT/pc-$cuadro_pc.ppm"
 if [[ $reusar -eq 0 || ! -s "$PC_PPM" ]]; then
   work="$(mktemp -d "$OUT/.pc-XXXXXX")"
   ( cd "$work"
-    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    WAYLAND_DISPLAY="$("$REPO/scripts/wayland-socket.sh")" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
       timeout 600 "$BOOT" --config "$TOML" --window --rtc-seed 1 --no-audio \
       --press "$PRESSES" --screenshot-at "$cuadro_pc" --max-frames $(( cuadro_pc + 10 )) \
       > "$OUT/pc-window.log" 2>&1

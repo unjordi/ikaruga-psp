@@ -3,14 +3,15 @@
 # a temporary memory stick holding ms0:/PSP/GAME/IKARUGA/{EBOOT.PBP,1ST_READ.BIN,DISCO.ISO}, for
 # <segundos> seconds, and copies the ikaruga.log it wrote to <salida.log>.
 #   scripts/probar-ikaruga-ppsspp.sh <EBOOT.PBP> <dir-juego-extraido> <segundos> [salida.log]
-# <dir-juego-extraido> has fs/ and IP.BIN (see scripts/preparar-disco-ikaruga.sh); pass "-" to run
+# <dir-juego-extraido> has fs/ and IP.BIN (dcdisc extract, docs/primer-uso.md); pass "-" to run
 # without game data (the EBOOT must log an error and quit). The game data is copied only into the
 # temporary memory stick, which is created next to <salida.log> and deleted on exit.
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
 #      PROBAR_SACAR="a b" copies those files from the EBOOT's folder next to <salida.log>.
-#      PROBAR_DISCO=file uses that DISCO.ISO (tools/volcar-area-hd's dump of the real disc)
-#      instead of building one from <dir-juego-extraido>/fs.
+#      PROBAR_DISCO=file is the DISCO.ISO to use: tools/volcar-area-hd's dump of the real disc
+#      (docs/primer-uso.md). Required with game data; PROBAR_DISCO_ARMADO=1 builds one with
+#      preparar-disco-ikaruga.sh instead, which differs from the real disc from frame 4.
 #      PROBAR_CARPETA=NAME installs under ms0:/PSP/GAME/NAME instead of IKARUGA.
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
@@ -74,8 +75,11 @@ if [[ "$JUEGO" != "-" ]]; then
   cp "$JUEGO/fs/1ST_READ.BIN" "$GAME/1ST_READ.BIN"
   if [[ -n "${PROBAR_DISCO:-}" ]]; then
     ln "$(realpath "$PROBAR_DISCO")" "$GAME/DISCO.ISO" 2>/dev/null || cp "$PROBAR_DISCO" "$GAME/DISCO.ISO"
-  else
+  elif [[ "${PROBAR_DISCO_ARMADO:-0}" == 1 ]]; then
     "$REPO/scripts/preparar-disco-ikaruga.sh" "$JUEGO" "$GAME/DISCO.ISO" >/dev/null
+  else
+    echo "probar-ikaruga-ppsspp: set PROBAR_DISCO to the real disc dump (tools/volcar-area-hd, docs/primer-uso.md)" >&2
+    exit 2
   fi
 fi
 if [[ -n "${PROBAR_CFG:-}" ]]; then

@@ -17,7 +17,7 @@
 # Env: DREAM_RECOMP=<dream-recomp checkout> for the decoder of contar-poligonos instead of
 #      third_party/dream-recomp.
 # Host needs: what probar-ikaruga-ppsspp.sh needs, g++, python3 with Pillow, a Wayland session for
-# the PC window (WAYLAND_DISPLAY/XDG_RUNTIME_DIR; defaults wayland-1 and /run/user/<uid>).
+# the PC window (WAYLAND_DISPLAY/XDG_RUNTIME_DIR; WAYLAND_DISPLAY found by scripts/wayland-socket.sh).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -86,7 +86,7 @@ PC_PPM="$OUT/pc-$cuadro.ppm" PC_TA="$OUT/pc-ta-$cuadro.bin"
 if [[ $reusar -eq 0 || ! -s "$PC_PPM" || ! -s "$PC_TA" ]]; then
   work="$(mktemp -d "$OUT/.pc-XXXXXX")"
   ( cd "$work"
-    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    WAYLAND_DISPLAY="$("$REPO/scripts/wayland-socket.sh")" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
       timeout 600 "$BOOT" --config "$TOML" --window --rtc-seed 1 --no-audio \
       --press "$PRESSES" --screenshot-at "$cuadro" --max-frames $(( cuadro + 10 )) > "$OUT/pc-window.log" 2>&1
     mv screenshot-000.ppm "$PC_PPM"
