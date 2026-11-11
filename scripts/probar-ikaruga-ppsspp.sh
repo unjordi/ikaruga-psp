@@ -15,6 +15,8 @@
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
 #      VMU.BIN left after it (removed if there is none).
+#      PROBAR_GRABAR=DIR records the PPSSPP screen (ffmpeg x11grab, 480x272) to DIR/f%05d.png at
+#      PROBAR_GRABAR_FPS frames per second (default 1) for the whole run, plus DIR/t0 (start, s).
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 #      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT
 #      writes is copied next to <salida.log>. <segundos> is then an upper bound: the run ends as
@@ -88,6 +90,13 @@ flatpak run --filesystem="$WORK" --command=sh "$APP" -c \
   'export XDG_CONFIG_HOME="$WORK/config" XDG_DATA_HOME="$WORK/data"; exec PPSSPPSDL --windowed --xres 480 --yres 272 --log="$LOG" "$GAME/EBOOT.PBP"' \
   >"$WORK/stdout.log" 2>&1 &
 pid=$!
+gp=""
+if [ -n "$GRABAR" ]; then
+  mkdir -p "$GRABAR"; date +%s.%N > "$GRABAR/t0"
+  ffmpeg -loglevel error -f x11grab -draw_mouse 0 -framerate "$GRABAR_FPS" -video_size 480x272 \
+    -i "$DISPLAY" "$GRABAR/f%05d.png" </dev/null &
+  gp=$!
+fi
 t=0
 while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
   if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
@@ -97,11 +106,13 @@ alive=1
 kill -0 "$pid" 2>/dev/null || alive=0
 if [ -n "$CAPTURA" ] && [ $alive -eq 1 ]; then import -window root "$RAW" || true; fi
 [ $alive -eq 1 ] && kill "$pid" 2>/dev/null
+[ -n "$gp" ] && { kill "$gp" 2>/dev/null; wait "$gp" 2>/dev/null; }
 wait "$pid" 2>/dev/null
 echo $? > "$WORK/ppsspp-rc"
 echo "$alive" > "$WORK/alive"
 SH
-export APP WORK LOG RAW GAME SEGUNDOS CAPTURA
+GRABAR="${PROBAR_GRABAR:+$(realpath -m "$PROBAR_GRABAR")}" GRABAR_FPS="${PROBAR_GRABAR_FPS:-1}"
+export APP WORK LOG RAW GAME SEGUNDOS CAPTURA GRABAR GRABAR_FPS
 set +e
 # -d: Xvfb picks a free display itself; -a can give two parallel runs the same one, and the
 # first to end then kills the X server under the other.

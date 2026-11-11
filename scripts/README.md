@@ -21,3 +21,5 @@
 
 - `test-psp-video.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml> [--reusar] [--solo a|b|c]`: acceptance of the user tile clip (side columns at frame 2600) and fog (mode buttons at frame 1700), each against PC by region PSNR with its negative (`recorte=0`, `niebla=0`), plus the title. See docs/video-psp.md.
 - `test-gitignore.sh`: game data, captures, memory cards and the cfg/log next to the EBOOT are ignored wherever they land; no tracked file matches `.gitignore`. Needs no game files.
+- `capturar-flycast.sh <disco.chd> [--pulsar P] [--segundos S] [--fps F] [--salida DIR]`: runs Ikaruga in Flycast (flatpak, stable) on Xvfb with presses sent as X keys (xdotool) and records the screen (ffmpeg x11grab) as PNGs, also scaled to 480x272. See docs/referencia-flycast.md.
+- `comparar-flycast.sh <serie-flycast/p480> <serie-psp> --escena NAME:F0-F1:P0-P1... [--contra A:B]...`: per-scene PSNR/SSIM (whole screen and side columns/centre) of the PSP against Flycast, taking the best-SSIM pair inside each window; thresholds 20 dB / 0.7. The PSP series comes from probar-ikaruga-ppsspp.sh with `PROBAR_GRABAR=DIR`.
