@@ -77,3 +77,50 @@ comparan contra PC (`comparar-geometria.sh`, `test-psp-igual-pc.sh`, `comparar-t
 con `--vmu` sobre una tarjeta en blanco nueva, para que PC y PSP vean la misma consola. Esto entra en
 el paso 85 (red de pruebas), no como paso aparte. Contra Flycast hay que recordar lo mismo: la
 captura de Flycast debe tener la VMU en el mismo estado (ver paso 36).
+
+## 38. ¿Render a textura (`FB_W_SOF1` bit 24)?
+
+**Pregunta.** ¿El juego apunta algún render a una textura en vez de a la pantalla?
+
+**Cómo lo medí.** Sin tocar el runtime: con `gdb` sobre el lanzador de PC (no tiene símbolos de
+depuración, pero sí nombres), un watchpoint de hardware sobre el registro `FB_W_SOF1` dentro de
+`Core::regs_` (la base de los registros se encuentra buscando el `ID` `0x17FD11DB` desde `this` en la
+primera llamada a `Core::write`; `FB_W_SOF1` está en +0x60). Cada escritura del guest se imprime.
+
+```
+# sof1b.gdb
+break dream::pvr::Core::write
+run
+delete
+find /w $rdi, +0x8000, 0x17FD11DB
+set $sof1 = (unsigned int*)($_ + 0x60)
+watch -l *$sof1
+commands
+silent
+printf "SOF1 %08x\n", *$sof1
+continue
+end
+continue
+
+gdb -batch -x sof1b.gdb --args $B --config $T --rtc-seed 1 --press $P --max-frames N
+```
+
+**Resultado.**
+
+| tramo | escrituras de `FB_W_SOF1` | valores | con bit 24 |
+|---|---|---|---|
+| cuadros 0–400 (logo, título) | 199 | `0x0026a000` ×100, `0x0066a000` ×99 | 0 |
+| cuadros 0–2601 (título, menú, inicio del capítulo 1) | 2320 | `0x0026a000` ×1160, `0x0066a000` ×1160 | 0 |
+| cuadros 0–9000 (capítulo 1 hasta donde llega sin más pulsaciones) | 8715 | `0x0026a000` ×4358, `0x0066a000` ×4357 | 0 |
+
+Una escritura por render, alternando entre los dos búferes de pantalla (doble búfer). El reporte
+además da `0 texture words` (nadie escribe por el camino de texturas del TA). Ningún render va a
+textura en lo que alcancé. No llegué a los capítulos 2–5: con las pulsaciones guionadas el juego se
+queda en el capítulo 1 (sin más entrada, la nave no sobrevive mucho), y no tengo una grabación de
+entrada que llegue más lejos.
+
+**Propuesta para el plan.** (a) **Borrar el paso 39** (dibujar a textura) y dejar el **38 cerrado
+para el capítulo 1**. La comprobación de los capítulos 2–5 no se hace aparte: entra en el paso 72
+(recorrer los capítulos en PPSSPP), donde la PSP ya cuenta `texture_renders` en el log
+(`psp/ikaruga/main.cpp`, lambda `pvr.on_render`). Basta con que el paso 72 diga «`texture_renders`
+sigue en 0; si no, abrir el paso de render a textura».
