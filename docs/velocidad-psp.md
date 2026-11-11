@@ -344,3 +344,40 @@ sigue valiendo para él y no lo reconstruí.
 - `build-psp-ikaruga.sh` reutiliza `obj/gen` aunque cambie `ops.h`: un primer intento midió un EBOOT
   sin el cambio. Rehíce con `obj/gen` borrado; no cambié el script (lo digo en primer-uso).
 
+
+### Fila 8b ítem por ítem (EBOOT `float` con el parche 0010 apagado y la sonda `fpu:`, md5 `4b2d8f8b…`)
+
+Medido el 2026-11-11 con `medir-velocidad.sh --veces 1` en PPSSPP (`build/f8b/vel/`). El parche 0010
+solo actúa con `DREAM_SOFT_DAZ=1`; en `float` queda `Freg = float` y el código no cambia, salvo una línea
+de sonda en el arranque.
+
+| ítem del doc | antes (9b, `eboot-noftz`) | fila 8b | nota |
+|---|---|---|---|
+| Línea base juego 2600 (develop) | 0,0405 | no remedido | EBOOT histórico; 8b no toca develop |
+| Línea base título 1243 (develop) | 0,1453 | no remedido | ídem |
+| Juego 2600 (EBOOT final) | 0,0869, host_s 499,355 | **0,0869**, host_s 499,346, draw_ms_per_render 7,63 | igual: la sonda no cuesta |
+| Título 1243 (EBOOT final) | 0,1458, host_s 142,375 | **0,1458**, host_s 142,369 | igual |
+| Tramo título 300–1380 (host_s/60) | 6,3–6,4; ftrv 3, fmac 4–154, fipr 0 | 5,6–6,4; ftrv 3, fmac 2–154, fipr 0 | igual (la corrida de juego, mismos cuadros) |
+| Tramo juego 1500–1860 | 12,2–12,5; ftrv 5 197 | 12,2–12,5; ftrv 5 196–5 198, fmac 7 504–7 715, fipr 2 334 | igual |
+| Tramo juego 2040–2600 | 14,0–23,5 | 14,0–23,5 (ventana 1980–2040: 24,0); ftrv 5 830–14 942, fmac 10 893–26 153, fipr 4 526–20 419 | igual |
+| throw por cuadro | 3–8 | 3–8 | igual |
+| scheduler por cuadro | 1 525–1 598 | 1 525–1 598 | igual |
+| Cambio 1 A9 (contadores) | conservado | sin cambio | lo usa esta tabla |
+| Cambio 2: develop / solo páginas sucias / páginas+espacio | 0,0405 / 0,0409 / 0,0517 | no remedido | EBOOTs históricos; 8b no toca la caché |
+| Cambio 3: A3 entero | revertido | no aplica | lo sustituye el float |
+| Cambio 4: `cache2` / `nobios` | over_budget 10 907 / 0 | over_budget **0**, peak 2 621 056 de 2 621 440 | igual |
+| Cambio 5: A5 memo | revertido | no aplica | sigue revertido |
+| Diagnóstico `diagfloat` | 0,0902 | no aplica | diagnóstico histórico |
+| Fila 9b: `nobios` / float / float+vaciado | 0,0518 / 0,0869 / 0,0834 | float 0,0869 | el vaciado revertido de 9b lo sustituye 0010, que solo existe en `double` |
+| Igualdad (a) float sin entrada 60…600 | PASA | no corrida entera; arranque 60…240 **PASA** | regla de la fila: solo arranque a 240 |
+| (a'), (a''), (b), (b') float vs PC con `PULSAR` | 1980 pasa / 2040 falla / 1500 falla / pasa | no aplica | en `float` una divergencia PC↔PSP por la FPU no es un bug; el PC no es referencia |
+| Control: EBOOT double vs PC double, `PULSAR` | FALLA en 2040 (primer cuadro distinto 1983) | **PASA 60…2600** (EBOOT `f760c959…`) | era esta fila; contraprueba `DREAM_SOFT_DAZ=0` falla en 1983 (docs/correctitud-psp.md) |
+| Resultado (c) `--todas` y (e) las 8 | PASA | no corrido | lo corre el orquestador al integrar |
+| Resultado (d) / (a) velocidad juego 2600 | 0,0869 | 0,0869 | meta 9b 0,085x se mantiene; la de la fila 9 (0,105x) sigue sin cumplirse |
+| Cambio 6: A6a SPG | revertido por correctitud | no aplica | sigue revertido |
+| A13 excepciones | no tocado | no tocado | throw/f 3–8 |
+| Resultado (c) texturas-juego `--psnr-ref 10.35` | no corrido en 9b | no corrido | 8b no toca el dibujo |
+| RAM libre: final | in_use 34 389 208 | in_use **34 389 208**, arena 35 921 152, libre 1 531 944, bloque mayor 2 192 KB, kernel 764 KB | develop/cache2: EBOOTs históricos, no remedidos |
+| Qué NO verifiqué de 9: hardware real | no | no | sigue |
+| — PSNR 2600 bajo / `DREAM_NO_BIOS_IMAGE` / costo A9 / páginas por `resolve` | sigue | sigue | 8b no los toca |
+| Qué NO verifiqué de 9b: divergencia de 1983 | abierta | **cerrada en `double`** | causa: la PSP no hace DAZ en las entradas, más el signo del NaN del double por software |
