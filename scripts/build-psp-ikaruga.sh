@@ -106,7 +106,7 @@ for v in "${variants[@]}"; do
 done
 if [[ " ${variants[*]} " != *" mix "* && -s "$OUT/EBOOT-Os.PBP" ]]; then cp "$OUT/EBOOT-Os.PBP" "$OUT/EBOOT.PBP"; fi
 
-# Sizes against the ~52 MB a PSP-2000/3000 leaves to a 64 MB homebrew (docs/plan.md, step 30).
+# Sizes against the ~52 MB a PSP-2000/3000 leaves to a 64 MB homebrew (docs/plan.md, the memory budget step).
 for v in "${variants[@]}"; do
   docker run --rm --volume "$OUT/$v:/work:ro" --workdir /work "$IMAGE" \
     psp-size ikaruga.elf | awk -v v="$v" 'NR==1{print "variant " v ": " $0; next}

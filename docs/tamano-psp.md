@@ -9,7 +9,7 @@ toolchain `ikaruga-psp-toolchain:v20261001` (psp-g++ 15.2.0), dream-recomp `51ca
 CONFIRMADO con `ls $G | sort | while read f; do cat "$G/$f"; done | sha256sum`).
 Los stubs de host (`psp/stubs/`) no hacen nada: el `.elf` enlaza pero no arranca el juego.
 
-MB = MiB (1 048 576 B), igual que el presupuesto de `docs/plan.md` (paso 30).
+MB = MiB (1 048 576 B), igual que el presupuesto de `docs/plan.md` (paso «Medir la memoria real del EBOOT»).
 
 ## 1. `psp-size`
 
@@ -69,7 +69,7 @@ La estimación de §2 (13–20 MB) queda superada por -O2 y por debajo con -Os.
 
 ## 3. Contra el presupuesto (≈52 MB útiles, PSP-2000/3000 con `MEMSIZE=1`)
 
-Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (presupuesto del diseño, hoy en `docs/plan.md` paso 30, SEGÚN
+Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (presupuesto del diseño, hoy en `docs/plan.md`, paso «Medir la memoria real del EBOOT», SEGÚN
 `memory-footprint-study.md`). La suma la imprime el propio script al final del build
 (`build/psp/evidencia/build-limpio.log`).
 
@@ -159,7 +159,7 @@ margen, igual que `-Os`. Los +140 B del generado con las mismas banderas no los 
 - **`-mno-explicit-relocs`** puede generar código algo distinto (macros del ensamblador en vez de
   pares `%hi/%lo` programados por gcc); no medí su efecto en tamaño ni velocidad contra la versión
   con relocs explícitos, porque esa nunca terminó de ensamblar.
-- **El presupuesto de 52 MB** y el resto (texturas, GE, pilas) vienen del presupuesto del diseño (`docs/plan.md`, paso 30), no
+- **El presupuesto de 52 MB** y el resto (texturas, GE, pilas) vienen del presupuesto del diseño (`docs/plan.md`, paso «Medir la memoria real del EBOOT»), no
   medidos aquí. Tampoco conté memoria dinámica del runtime fuera de los 28,1 MB del guest (vectores,
   `unordered_map` del ABI, colas de AICA/PVR): la `bss` del runtime (0,56 MB) sí está, el heap no.
 - **No medí velocidad**: -Os podría ser bastante más lento que -O2 en el bucle caliente.

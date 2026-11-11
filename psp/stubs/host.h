@@ -1,5 +1,5 @@
-// Host services the PSP build needs from outside dream-recomp's core (table 1 of
-// docs/diseno-psp.md). Video, audio and input are still stubs that do nothing.
+// Host services the PSP build needs from outside dream-recomp's core (the host pieces of
+// docs/plan.md). Audio is still a stub that does nothing.
 #pragma once
 
 #include <cstdint>
@@ -43,7 +43,11 @@ void video_set_fog(bool enabled);
 // The buffer on screen as packed RGB888, top row first.
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 
-// Row 5: controller. Scripted presses "name@frame,..." (PC's --press syntax); returns how many.
+// Controller. Reads the mapping keys of ikaruga.cfg (docs/controles-psp.md); without the file
+// the defaults stay.
+void input_config(const char* cfg_path);
+// Scripted presses "name@frame,..." (PC's --press syntax), OR'd with the real buttons; returns
+// how many.
 std::size_t input_script(const std::string& presses);
 void input_poll(dream::maple::ControllerState& pad, std::uint64_t frame);
 
