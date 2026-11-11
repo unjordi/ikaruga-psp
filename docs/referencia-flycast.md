@@ -138,6 +138,23 @@ Lo que **sí** se ve como en el emulador: título (logo, PRESS START, laterales 
 título y SELECT GAME MODE, todo por encima de 25 dB y 0,89 de SSIM; el texto del inicio del cap. 1
 y el cielo con la estructura en diagonal (centro 27,38 dB / 0,945).
 
+## Entradas de esta fila contra `docs/primer-uso.md`
+
+Cada pieza de las tablas «Qué copiar a la memory stick» y «Hashes de la corrida» de
+`docs/primer-uso.md`, medida sobre lo que usó esta fila (2026-11-10):
+
+| pieza | primer-uso.md | esta fila | |
+|---|---|---|---|
+| CHD de entrada | 26 841 157 B, sha256 `a322d7ee…a9a66` | copia en `build/flycast/Ikaruga.chd` y original en /tank: 26 841 157 B, `a322d7ee…a9a66` | igual |
+| `1ST_READ.BIN` | 1 027 892 B, sha1 `f2524eb5…f6c9f9` | 1 027 892 B, sha1 `f2524eb571da1b0fb4a9b2cdab448ce24764c6f9`, sha256 `b3c9a2b9…855de` | igual |
+| `gen/` con idle-skip | 20 archivos, 48 MB, `924f8b67…884da` | `dr-idle/build-rel/games/ikaruga/gen`: 20 archivos, 48M, `924f8b67d9778173…aec884da` | igual |
+| `ikaruga_boot` (PC) | 14 430 776 B; text 13 152 407, data 227 080, bss 590 520 | `dr-idle/build-rel/games/ikaruga/ikaruga_boot`: lo mismo | igual; solo se usó para el arranque igual a PC |
+| `EBOOT.PBP` (mix) | 13 885 660 B, `d9840d5c…` | 13 887 004 B, `d3f5e8ba2b81e7f6…53b6304a` | distinto: develop cambió desde el 2026-11-06 (era esperable); es el EBOOT de esta fila |
+| `DISCO.ISO` | 504 150 sectores, 1 032 499 200 B, `c3173ebd…110db7` | `ikaruga-psp-wt/f8/build/DISCO-real.ISO`: lo mismo | igual |
+| total memory stick | 1 047 412 752 B | 1 047 414 096 B | +1 344 B, la diferencia del EBOOT |
+| `test-psp-igual-pc.sh` | PASS 10/10 (60…600) | corrido con `HASTA=240`: PASS 4/4, cuadro 60 `b003d78fd04385d4`, 240 `d7e9cca457022d77` | el cuadro 60 coincide con el del doc; 300…600 no los corrí (la regla pide hasta 240) |
+| `test-psp-titulo.sh` | PASS (a) 28,43 dB … | no corrido | la batería la corre el orquestador; el título contra Flycast da 28,76 dB / 0,966 (arriba) |
+
 ## Pruebas corridas en esta fila
 
 - `capturar-flycast.sh` y `comparar-flycast.sh`, con los números de arriba.
