@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Runs every PSP test in order and prints one line per test (ok / FAIL and its last line), then the
 # count. This is the battery that runs when a change is integrated.
-#   scripts/bateria.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml>
+#   scripts/bateria.sh <EBOOT.PBP> <dir-juego-extraido>
 #                      [--double EBOOT-double.PBP] [--sin-velocidad] [--solo name,name]
 # --double runs test-psp-igual-pc-double.sh with that EBOOT (built with DREAM_FPU_DOUBLE=1).
 # Env: PROBAR_DISCO (required, real disc dump) and DREAM_RECOMP (the double PC launcher's checkout)
 # as each test needs them. Outputs: build/psp/evidencia/bateria/<name>.out and resumen.txt.
-# test-psp-video.sh (c) is test-psp-titulo.sh (a) (same EBOOT, frame 1243): only (a) and (b) run.
+# The image tests (geometria, titulo, video-*, texturas-juego) compare only against the Flycast
+# reference series (docs/referencia-flycast.md; recorded on first use, ~2 min). test-psp-video.sh (c)
+# is test-psp-titulo.sh (a) (same EBOOT, frame 1243): only (a) and (b) run.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,13 +18,13 @@ while [[ $# -gt 0 ]]; do
     --double) double="$2"; shift 2 ;;
     --sin-velocidad) velocidad=0; shift ;;
     --solo) solo=",$2,"; shift 2 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) args+=("$1"); shift ;;
   esac
 done
-[[ ${#args[@]} -eq 4 ]] || { sed -n '4,5p' "$0" >&2; exit 2; }
+[[ ${#args[@]} -eq 2 ]] || { sed -n '4,5p' "$0" >&2; exit 2; }
 [[ -n "${PROBAR_DISCO:-}" ]] || { echo "bateria: set PROBAR_DISCO (docs/primer-uso.md)" >&2; exit 2; }
-E="${args[0]}" G="${args[1]}" B="${args[2]}" T="${args[3]}"
+E="${args[0]}" G="${args[1]}"
 OUT="$REPO/build/psp/evidencia/bateria"
 rm -rf "$OUT"; mkdir -p "$OUT"
 fallos=0 total=0
@@ -45,11 +47,11 @@ run carpeta "$S/test-psp-carpeta.sh" "$E" "$G"
 run vmu "$S/test-psp-vmu.sh" "$E" "$G"
 run salida-suspension "$S/test-psp-salida-suspension.sh" "$E" "$G"
 run igual-pc "$S/test-psp-igual-pc.sh" "$E" "$G"
-run geometria "$S/test-psp-geometria.sh" "$E" "$G" "$B" "$T"
-run titulo "$S/test-psp-titulo.sh" "$E" "$G" "$B" "$T"
-run video-recorte "$S/test-psp-video.sh" "$E" "$G" "$B" "$T" --solo a
-run video-niebla "$S/test-psp-video.sh" "$E" "$G" "$B" "$T" --solo b
-run texturas-juego "$S/test-psp-texturas-juego.sh" "$E" "$G" "$B" "$T"
+run geometria "$S/test-psp-geometria.sh" "$E" "$G"
+run titulo "$S/test-psp-titulo.sh" "$E" "$G"
+run video-recorte "$S/test-psp-video.sh" "$E" "$G" --solo a
+run video-niebla "$S/test-psp-video.sh" "$E" "$G" --solo b
+run texturas-juego "$S/test-psp-texturas-juego.sh" "$E" "$G"
 [[ -n "$double" ]] && run igual-pc-double "$S/test-psp-igual-pc-double.sh" "$double" "$G"
 [[ $velocidad -eq 1 ]] && run velocidad "$S/medir-velocidad.sh" "$E" "$G" --veces 1 --solo 2600
 echo "$((total - fallos))/$total ok" | tee -a "$OUT/resumen.txt"
