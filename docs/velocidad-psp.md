@@ -292,6 +292,40 @@ de ~2 MB para la copia RGBA temporal de la decodificación (hasta 2 MB para 512�
   camino escribiera VRAM con `vram()` directo, la caché no se enteraría (no encontré ninguno en el
   runtime parchado).
 
+### Fila 9b ítem por ítem: qué cambia con `float` (EBOOT `build/eboot-noftz`)
+
+Evidencia: `build/ev-vel-noftz/juego-1/psp.log` (juego 2600), `build/ev-vel-titulo/titulo-1/psp.log`
+(título 1243), 2026-11-10/11. «No remedido» = EBOOT histórico de la fila 9, en `double`; su número
+sigue valiendo para él y no lo reconstruí.
+
+| ítem del doc | antes (fila 9, double) | con float | nota |
+|---|---|---|---|
+| Línea base juego 2600 (develop) | 0,0405 | no remedido | EBOOT histórico |
+| Línea base título 1243 (develop) | 0,1453 | no remedido | EBOOT histórico |
+| Título 1243 con el EBOOT final | sin medir (solo `dirty` 0,1458) | **0,1458**, host_s 142,375, draw 0,25 ms | cierra el «no medido» de la fila 9: el título casi no usa FTRV (3/f) |
+| Tramo título 300–1380 (host_s/60 cuadros) | 5,6–6,4 | 6,3–6,4; ftrv 3, fmac 4–154, fipr 0 | sin cambio: casi sin FPU vectorial |
+| Tramo juego 1500–1860 | 49–62; rechazos 20–37; draw 460–740 | **12,2–12,5**; ftrv 5 197, fmac ~7 500, fipr 2 334; rechazos 0; draw 6,7–7,7 | la caché (fila 9) quitó el dibujo; float baja el resto |
+| Tramo juego 2040–2600 | 29–54 | **14,0–23,5**; ftrv 5 830–14 942, fmac 10 893–26 153, fipr 4 526–20 419; draw 7,6–33 | lo que queda es CPU del guest fuera de las tres ops + dibujo |
+| throw por cuadro | 3–8 | 3–8 (≤ 39/s de host) | A13 sigue sin valer la pena |
+| scheduler por cuadro | ~1 525 | 1 525–1 598 | igual |
+| Cambio 2: develop / solo páginas sucias / páginas+espacio | 0,0405 / 0,0409 / 0,0517 | no remedido | el float va encima de los tres (conservado) |
+| Cambio 3: A3 entero (`exact2`) | 0,0516, revertido | no aplica | lo sustituye el float |
+| Cambio 4: `cache2` / `nobios` | 0,0517 / 0,0518, over_budget 10 907 / 0 | over_budget **0**, peak_demand 2 445 440, decode_ms 1 312,5, hash_ms 156,9 | la caché no cambia con float |
+| Cambio 5: A5 memo (`a5`) | 0,0528 (+1,9 %), revertido | no remedido | sigue revertido; sobre float sería otro % |
+| Diagnóstico `diagfloat` | 0,0902 (hash ≠ desde 1500) | float final 0,0869 | 4 % por debajo del diagnóstico: el `diagfloat` era otra variante (código no conservado), no lo reconstruí para comparar |
+| Cambio 6: A6a SPG | 0,0535, hash ≠ desde 240, revertido | no aplica | sigue revertido por correctitud |
+| A13 excepciones | no tocado | no tocado | ver fila throw |
+| Resultado (a) velocidad juego 2600 | 0,0518 | **0,0869** | meta de 9b 0,085x cumplida; la de la fila 9 (0,105x) sigue sin cumplirse |
+| Resultado (b) título `--todas` | 28,43 / 9,46 / 7,37 dB, 8 ok | 28,43 / 9,46 / 7,37 dB, 8 ok | idéntico |
+| Resultado (c) texturas-juego `--psnr-ref 10.35` | PASA, 10,35 dB | **no corrido** | no lo pidió 9b; pendiente |
+| RAM libre: develop / cache2 / final | in_use 35 897 432 / 35 897 688 / 34 389 208; bloque mayor 608 / 528 / 2 016 KB | final float: in_use 34 389 208, bloque mayor **2 000 KB**, kernel 764 KB | igual salvo 16 KB del bloque (medido por bloques decrecientes) |
+| «Qué NO verifiqué» de la fila 9: hardware real | no | no | sigue |
+| — velocidad del título con el EBOOT final | no medida | **medida: 0,1458** | cerrado |
+| — PSNR 2600 bajo (10,35 dB) | no revisado a ojo | no revisado | sigue |
+| — `DREAM_NO_BIOS_IMAGE` | supuesto | supuesto | sigue |
+| — costo de los contadores A9 | no medido | no medido | sigue |
+| — páginas sucias solo por `resolve` | no buscado más | no buscado más | sigue |
+
 ### Qué NO verifiqué en la fila 9b y dónde está mi punto ciego
 
 - La igualdad PC↔PSP con `float` solo está probada **sin entrada (60…600) y con las pulsaciones del
