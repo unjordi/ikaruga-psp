@@ -1,0 +1,156 @@
+Idle-skip made cheap (docs/idle-skip.md): linear table of loop heads instead of std::map, the previous
+turn is compared in place and copied only when the turn differs, 32-bit division when the values fit.
+Same decisions as 0004/0011; IdleTurn and the saved state are unchanged.
+
+diff -ru f32a/runtime/include/dream/runtime/system.h f32b/runtime/include/dream/runtime/system.h
+--- f32a/runtime/include/dream/runtime/system.h
++++ f32b/runtime/include/dream/runtime/system.h
+@@ -72,7 +72,35 @@
+     // katana_wait_vblank: kmWaitVBlank's inner loop; @r15 points at a timeout word that each turn
+     // decrements by one, mirrored in r3 at the loop head.
+     enum class IdleKind { katana_wait_vblank };
+-    std::map<std::uint32_t, IdleKind> idle_loops;  // loop head block -> kind; empty = no skipping
++    // Loop head block -> kind; empty = no skipping. A handful of heads, so a linear scan.
++    class IdleTable {
++    public:
++        // Entry for `pc`, added when absent. Throws std::length_error past kMax heads.
++        IdleKind& operator[](std::uint32_t pc) {
++            for (unsigned i = 0; i < n_; ++i)
++                if (pc_[i] == pc)
++                    return kind_[i];
++            if (n_ == kMax)
++                throw std::length_error("idle_loops: too many loop heads");
++            pc_[n_] = pc;
++            kind_[n_] = IdleKind{};
++            return kind_[n_++];
++        }
++        bool contains(std::uint32_t pc) const noexcept {
++            for (unsigned i = 0; i < n_; ++i)
++                if (pc_[i] == pc)
++                    return true;
++            return false;
++        }
++        std::size_t size() const noexcept { return n_; }
++        bool empty() const noexcept { return n_ == 0; }
++
++    private:
++        static constexpr unsigned kMax = 8;
++        std::uint32_t pc_[kMax] = {};
++        IdleKind kind_[kMax] = {};
++        unsigned n_ = 0;
++    } idle_loops;
+     // Returns false for an unknown kind name.
+     static bool idle_kind_from_name(const std::string& name, IdleKind& kind);
+     std::uint64_t idle_skips = 0, idle_skipped_turns = 0, idle_skipped_cycles = 0;
+diff -ru f32a/runtime/src/system.cpp f32b/runtime/src/system.cpp
+--- f32a/runtime/src/system.cpp
++++ f32b/runtime/src/system.cpp
+@@ -1,6 +1,7 @@
+ #include "dream/runtime/system.h"
+ 
+ #include <algorithm>
++#include <cstddef>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+@@ -138,50 +139,64 @@
+ 
+ // Called at the head of a declared wait loop. A turn is skippable when the previous head was the
+ // same loop, nothing was delivered, trapped or read from a device in between, and the whole
+-// context matches except the cycle count and the timeout (one lower). Then the next k turns are
+-// copies of it: the runtime adds k turns' cycles and lowers the timeout by k, stopping before any
+-// turn that could reach next_event or end the loop on the timeout. Those turns run as translated,
+-// so interrupts land at the same cycle as without skipping.
++// context matches except the cycle count, next_event and the timeout (one lower, mirrored in r3).
++// Then the next k turns are copies of it: the runtime adds k turns' cycles and lowers the timeout
++// by k, stopping before any turn that could reach next_event or end the loop on the timeout. Those
++// turns run as translated, so interrupts land at the same cycle as without skipping.
++// The previous turn is copied only when this one differs from it; an equal turn updates just the
++// three fields allowed to differ.
+ void System::on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
+     if (before_idle)
+         before_idle(c, pc);
+-    IdleTurn& prev = idle_prev;
+-    if (idle_loops.find(pc) == idle_loops.end())
++    if (!idle_loops.contains(pc))
+         return;
++    IdleTurn& prev = idle_prev;
+     const std::uint32_t timeout_addr = m.read32(c.r[15]);
+     std::uint32_t timeout = m.read32(timeout_addr);
+-    if (prev.valid && prev.pc == pc && prev.timeout_addr == timeout_addr &&
+-        prev.interrupts == interrupts_delivered && prev.traps == traps_taken &&
+-        prev.devices == device_accesses && timeout != 0 && timeout + 1 == prev.timeout &&
+-        c.r[3] == timeout && c.cycles > prev.ctx.cycles && c.next_event > c.cycles) {
+-        sh4::Ctx a = prev.ctx, b = c;
+-        a.cycles = b.cycles = 0;
+-        a.next_event = b.next_event = 0;
+-        a.r[3] = b.r[3] = 0;
+-        if (!std::memcmp(&a, &b, sizeof a)) {
+-            const std::uint64_t d = c.cycles - prev.ctx.cycles;
+-            // The polls of a skipped turn fall at or before its end; keep them below next_event.
+-            std::uint64_t k = (c.next_event - c.cycles - 1) / d;
+-            k = std::min<std::uint64_t>(k, timeout - 1);
+-            if (k) {
+-                c.cycles += k * d;
+-                timeout -= static_cast<std::uint32_t>(k);
+-                m.write32(timeout_addr, timeout);
+-                c.r[3] = timeout;
+-                ++idle_skips;
+-                idle_skipped_turns += k;
+-                idle_skipped_cycles += k * d;
+-            }
+-        }
++    bool same = prev.valid && prev.pc == pc && prev.timeout_addr == timeout_addr &&
++                prev.interrupts == interrupts_delivered && prev.traps == traps_taken &&
++                prev.devices == device_accesses && timeout != 0 && timeout + 1 == prev.timeout &&
++                c.r[3] == timeout && c.cycles > prev.ctx.cycles && c.next_event > c.cycles;
++    if (same) {
++        // Everything before `cycles` except r[3].
++        constexpr std::size_t r3 = offsetof(sh4::Ctx, r) + 3 * sizeof(std::uint32_t);
++        constexpr std::size_t end = offsetof(sh4::Ctx, cycles);
++        static_assert(offsetof(sh4::Ctx, r) == 0 && sizeof(sh4::Ctx) == end + 16);
++        const auto* a = reinterpret_cast<const unsigned char*>(&prev.ctx);
++        const auto* b = reinterpret_cast<const unsigned char*>(&c);
++        same = !std::memcmp(a, b, r3) &&
++               !std::memcmp(a + r3 + sizeof(std::uint32_t), b + r3 + sizeof(std::uint32_t),
++                            end - r3 - sizeof(std::uint32_t));
++    }
++    if (!same) {
++        prev.valid = true;
++        prev.pc = pc;
++        prev.timeout_addr = timeout_addr;
++        prev.timeout = timeout;
++        prev.interrupts = interrupts_delivered;
++        prev.traps = traps_taken;
++        prev.devices = device_accesses;
++        prev.ctx = c;
++        return;
++    }
++    const std::uint64_t d = c.cycles - prev.ctx.cycles;
++    // The polls of a skipped turn fall at or before its end; keep them below next_event.
++    const std::uint64_t room = c.next_event - c.cycles - 1;
++    std::uint64_t k = ((room | d) >> 32) ? room / d : std::uint32_t(room) / std::uint32_t(d);
++    k = std::min<std::uint64_t>(k, timeout - 1);
++    if (k) {
++        c.cycles += k * d;
++        timeout -= static_cast<std::uint32_t>(k);
++        m.write32(timeout_addr, timeout);
++        c.r[3] = timeout;
++        ++idle_skips;
++        idle_skipped_turns += k;
++        idle_skipped_cycles += k * d;
+     }
+-    prev.valid = true;
+-    prev.pc = pc;
+-    prev.timeout_addr = timeout_addr;
+     prev.timeout = timeout;
+-    prev.interrupts = interrupts_delivered;
+-    prev.traps = traps_taken;
+-    prev.devices = device_accesses;
+-    prev.ctx = c;
++    prev.ctx.cycles = c.cycles;
++    prev.ctx.next_event = c.next_event;
++    prev.ctx.r[3] = c.r[3];
+ }
+ 
+ void System::on_trapa(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t imm) {
