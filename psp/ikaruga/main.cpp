@@ -9,6 +9,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <type_traits>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -33,6 +34,7 @@
 #include "dream/runtime/pvr/core.h"
 #include "dream/runtime/sh4/abi.h"
 #include "dream/runtime/sh4/dmac.h"
+#include "dream/runtime/state.h"
 #include "dream/runtime/system.h"
 #include "host.h"
 #include "texture_psp.h"
@@ -124,6 +126,10 @@ struct Config {
     std::uint64_t capture_at = 0, max_frames = 0;
     std::uint64_t draw_from = 0;
     std::string presses;
+    // Saved state (docs/estado-guardado.md): load_state = file to start from instead of the boot;
+    // save_state_at = N writes estado-N.bin at the first wait for vblank of frame >= N.
+    std::string load_state;
+    std::uint64_t save_state_at = 0;
     bool draw = true;
     bool trace = false;
     bool depth = true;
@@ -178,6 +184,10 @@ Config read_config() {
             cfg.max_frames = number();
         else if (key == "pulsar")
             cfg.presses = value;
+        else if (key == "cargar_estado")
+            cfg.load_state = value;
+        else if (key == "guardar_estado_en")
+            cfg.save_state_at = number();
         else if (key == "volcar_ta")
             cfg.dump_ta = value != "0";
         else if (key == "profundidad")
@@ -628,9 +638,99 @@ int main(int argc, char** argv) {
 
     log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
         program.size(), kLoadAddress, disc->tracks().back().sectors);
+
+    // Saved state. The point is the head of kmWaitVBlank's wait loop (0x0C0370BA, an [idle] head
+    // with a resume label, docs/investigacion-pendientes.md section 23): no exception frame, no
+    // render half sent, and run_guest_from can start there. A turn where an interrupt is already
+    // due is passed over: the resumed function would take it on entry, before the poll the
+    // original run took it at. Same devices and order as the PC launcher's patch.
+    constexpr std::uint32_t kSavePc = 0x0C0370BAu;
+    auto state_devices = [&](auto& io) {
+        auto io1 = [&io](auto& dev) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(io)>, dream::state::Writer>)
+                dev.save(io);
+            else
+                dev.load(io);
+        };
+        io1(pvr);
+        io1(dmac);
+        io1(sysblock);
+        io1(g2);
+        io1(g1);
+        io1(pvrdma);
+        io1(dma_triggers);
+        io1(bsc);
+        io1(ubc);
+        io1(cpg);
+        io1(sh4rtc);
+        io1(scif);
+        io1(maple);
+        io1(aica);
+        io1(rtc);
+        io1(bios);
+    };
+    if (cfg.save_state_at) {
+        sys.before_idle = [&, done = false](dream::sh4::Ctx& c, std::uint32_t pc) mutable {
+            if (done || pc != kSavePc || sys.spg.frames() < cfg.save_state_at ||
+                sys.nesting != 0 || c.cycles >= c.next_event)
+                return;
+            done = true;
+            char name[48];
+            std::snprintf(name, sizeof name, "estado-%" PRIu64 ".bin", cfg.save_state_at);
+            const std::string path = path_in_dir(name);
+            const std::uint64_t s0 = host::clock_us();
+            std::FILE* f = std::fopen(path.c_str(), "wb");
+            if (!f) {
+                log_line("state: cannot write %s", path.c_str());
+                return;
+            }
+            dream::state::Writer w(f);
+            w.begin("HOST", 1);
+            w.u32(pc);
+            w.u64(sys.spg.frames());
+            w.end();
+            sys.save(w);
+            state_devices(w);
+            std::fclose(f);
+            log_line("state: saved frame %" PRIu64 " at pc 0x%08" PRIx32 " to %s in %.2f s",
+                sys.spg.frames(), pc, name, static_cast<double>(host::clock_us() - s0) / 1e6);
+        };
+    }
+    const std::uint32_t stop_pr = sys.ctx.pr;
+    std::uint32_t resume_pc = 0;
+    if (!cfg.load_state.empty()) {
+        const std::string path = path_in_dir(cfg.load_state.c_str());
+        const std::uint64_t s0 = host::clock_us();
+        std::FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) {
+            log_line("state: cannot read %s", path.c_str());
+            return quit(2);
+        }
+        try {
+            dream::state::Reader r(f);
+            r.begin("HOST", 1);
+            resume_pc = r.u32();
+            const std::uint64_t frame = r.u64();
+            r.end();
+            sys.load(r);
+            state_devices(r);
+            log_line("state: loaded frame %" PRIu64 " from %s in %.2f s, resuming at pc 0x%08"
+                PRIx32, frame, cfg.load_state.c_str(),
+                static_cast<double>(host::clock_us() - s0) / 1e6, resume_pc);
+        } catch (const std::exception& e) {
+            std::fclose(f);
+            log_line("state: %s: %s", cfg.load_state.c_str(), e.what());
+            return quit(2);
+        }
+        std::fclose(f);
+    }
+
     int rc = 0;
     try {
-        dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
+        if (resume_pc)
+            dream::sh4::run_guest_from(sys.ctx, sys.memory, resume_pc, stop_pr);
+        else
+            dream::sh4::run_guest(sys.ctx, sys.memory, kEntry);
         report("stop: guest returned");
     } catch (const ExitRequested&) {
         report("stop: exit requested");
