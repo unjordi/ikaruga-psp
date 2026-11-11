@@ -16,7 +16,7 @@ RT_SRCS := \
   runtime/src/holly/g2dma.cpp runtime/src/sh4/dmac.cpp runtime/src/pvr/spg.cpp \
   runtime/src/pvr/core.cpp runtime/src/system.cpp runtime/src/gdrom/disc.cpp \
   runtime/src/hle/flash.cpp runtime/src/hle/bios.cpp runtime/src/maple/maple.cpp \
-  runtime/src/aica/arm7.cpp runtime/src/aica/aica.cpp runtime/src/aica/mixer.cpp \
+  runtime/src/aica/arm7.cpp runtime/src/aica/aica.cpp runtime/src/aica/mixer.cpp runtime/src/state.cpp \
   render/src/display_list.cpp render/src/texture.cpp render/src/framebuffer.cpp \
   render/src/background.cpp render/src/fog.cpp
 GEN_SRCS  := $(sort $(notdir $(wildcard $(GEN)/*.cpp)))
