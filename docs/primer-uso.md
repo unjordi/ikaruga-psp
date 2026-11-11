@@ -48,6 +48,8 @@ cd ../..
 
 # 6. EBOOT de PSP: se construye desde el submódulo (DREAM_RECOMP sin definir); el dream-recomp de
 #    build/ ya trae el parche de PC y build-psp-ikaruga.sh volvería a parcharlo
+#    Si cambias un parche que toca ops.h (inline en el C++ generado), usa --limpio: el script
+#    reutiliza obj/gen y el EBOOT quedaría con el ops.h viejo (fila 9b, CONFIRMADO)
 scripts/build-psp-ikaruga.sh build/dream-recomp/build-rel/games/ikaruga/gen --variantes=mix
 
 # DREAM_RECOMP desde aquí: el binario de PC para las pruebas y volcar-area-hd
@@ -103,7 +105,7 @@ con texturas: arte de la nave en tonos naranja y azul, el logo 斑鳩 / IKARUGA 
 | CHD de entrada | 26 841 157 B, sha256 `a322d7ee917014a006c18b296ad82f12bce558ca4d26cf9954c6b8096f3a9a66` |
 | `1ST_READ.BIN` | sha1 `f2524eb571da1b0fb4a9b2cdab448ce24764c6f9` (sha256 `b3c9a2b98a4893a9de9436618c4bdeea3edaa9d774714ff05f8f47942ed855de`); extracción: `wrote IP.BIN and 737 files` |
 | `gen/` con idle-skip | 20 archivos, 48 MB, `924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da` (= doc) |
-| `ikaruga_boot` (PC, parchado) | 14 430 776 B; text 13 152 407, data 227 080, bss 590 520 |
+| `ikaruga_boot` (PC, parchado) | 14 430 776 B; text 13 152 407, data 227 080, bss 590 520 (antes de fila 9b; con `0002` float: 14 402 032 B, medido 2026-11-10) |
 | `EBOOT.PBP` (mix) | 13 885 660 B, sha256 `d9840d5c6ba31bbf89a1be5c72b2d775544cfc534ce424615179647c67d7523c` (= develop) — igual con la imagen cacheada y con una reconstruida `--no-cache` |
 | `DISCO.ISO` (área HD real) | 504 150 sectores, 0 ilegibles, 1 032 499 200 B, sha256 `c3173ebddd1058894b3b806e2ced63ededa2a66efdc15f9467585d388e110db7` |
 | `test-psp-igual-pc.sh` | PASS, 10/10 cuadros 60…600 (cuadro 60 `b003d78fd04385d4`, 600 `2986fff765029c09`) |
