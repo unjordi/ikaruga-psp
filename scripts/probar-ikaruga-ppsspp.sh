@@ -9,6 +9,8 @@
 # Default <salida.log>: build/psp/evidencia/ikaruga-<segundos>s.log.
 # Env: PROBAR_CAPTURA=file.png also saves a screenshot at the end.
 #      PROBAR_SACAR="a b" copies those files from the EBOOT's folder next to <salida.log>.
+#      PROBAR_METER="f1 f2" copies those files into the EBOOT's folder before the run (e.g. a
+#      saved state for cargar_estado=, docs/estado-guardado.md).
 #      PROBAR_DISCO=file is the DISCO.ISO to use: tools/volcar-area-hd's dump of the real disc
 #      (docs/primer-uso.md). Required with game data; PROBAR_DISCO_ARMADO=1 builds one with
 #      preparar-disco-ikaruga.sh instead, which differs from the real disc from frame 4.
@@ -69,6 +71,7 @@ mkdir -p "$GAME"
 cp "$EBOOT" "$GAME/EBOOT.PBP"
 [[ -n "${PROBAR_CFG:-}" ]] && cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
 [[ -n "${PROBAR_VMU_IN:-}" ]] && cp "$PROBAR_VMU_IN" "$GAME/VMU.BIN"
+for f in ${PROBAR_METER:-}; do cp "$f" "$GAME/"; done
 [[ "${PROBAR_SIN_IDLE:-0}" == 1 ]] && : > "$GAME/NO_IDLE_SKIP"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
