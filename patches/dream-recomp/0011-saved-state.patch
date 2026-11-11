@@ -1,0 +1,1131 @@
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index 5980e74..f97df0e 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -23,6 +23,7 @@ add_library(dream_runtime STATIC
+   src/aica/arm7.cpp
+   src/aica/aica.cpp
+   src/aica/mixer.cpp
++  src/state.cpp
+ )
+ target_include_directories(dream_runtime PUBLIC include)
+ # libchdr (BSD-3, third_party) for CHD disc images; the static target avoids a runtime DLL search.
+diff --git a/runtime/include/dream/runtime/aica/aica.h b/runtime/include/dream/runtime/aica/aica.h
+index 1ac2d5e..8b732ee 100644
+--- a/runtime/include/dream/runtime/aica/aica.h
++++ b/runtime/include/dream/runtime/aica/aica.h
+@@ -7,6 +7,7 @@
+ // generation is the second half of the work package.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -57,6 +58,9 @@ public:
+         return regs_[offset] | (static_cast<std::uint32_t>(regs_[offset + 1]) << 8);
+     }
+     bool arm_in_reset() const noexcept { return (regs_[kArmRst] & 1u) != 0; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     std::array<std::uint8_t, 0x8000> regs_{};  // before arm/mixer: they are built on it
+diff --git a/runtime/include/dream/runtime/aica/arm7.h b/runtime/include/dream/runtime/aica/arm7.h
+index a57b5d2..15dcc45 100644
+--- a/runtime/include/dream/runtime/aica/arm7.h
++++ b/runtime/include/dream/runtime/aica/arm7.h
+@@ -5,6 +5,7 @@
+ // feeds the FIQ pin, as in Flycast's arm7.cpp / arm_mem.cpp. No Thumb: the ARM7DI has none.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ 
+ namespace dream::aica {
+@@ -99,6 +100,9 @@ public:
+ 
+     std::uint64_t instructions = 0, fiqs = 0, swis = 0, undefined_ops = 0;
+     std::uint64_t fiqs_by_level[8] = {};
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     template <typename T>
+diff --git a/runtime/include/dream/runtime/aica/mixer.h b/runtime/include/dream/runtime/aica/mixer.h
+index daa16de..5183e97 100644
+--- a/runtime/include/dream/runtime/aica/mixer.h
++++ b/runtime/include/dream/runtime/aica/mixer.h
+@@ -10,6 +10,7 @@
+ // reads of the monitor registers and once per sample.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -39,6 +40,9 @@ public:
+     std::uint64_t key_ons = 0, key_offs = 0, samples = 0, nonzero_samples = 0;
+     unsigned active_channels() const noexcept;
+     bool dsp_running() const noexcept { return !dsp_.stopped; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     // ---- everything below is the ported model; public for the tests ----
+     using SampleType = std::int32_t;
+diff --git a/runtime/include/dream/runtime/aica/rtc.h b/runtime/include/dream/runtime/aica/rtc.h
+index bcbc064..6dea9d2 100644
+--- a/runtime/include/dream/runtime/aica/rtc.h
++++ b/runtime/include/dream/runtime/aica/rtc.h
+@@ -4,6 +4,7 @@
+ // with tick() so titles see time pass on the virtual clock (deterministic across runs).
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ 
+ #include "dream/runtime/mem/dc_memory.h"
+@@ -21,6 +22,9 @@ public:
+ 
+     std::uint32_t seconds() const noexcept { return seconds_; }
+     void tick() noexcept { ++seconds_; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     std::uint32_t read(std::uint32_t addr, unsigned) override {
+         switch (addr & 0xFFu) {
+diff --git a/runtime/include/dream/runtime/hle/bios.h b/runtime/include/dream/runtime/hle/bios.h
+index 54cda8e..b2c8c24 100644
+--- a/runtime/include/dream/runtime/hle/bios.h
++++ b/runtime/include/dream/runtime/hle/bios.h
+@@ -5,6 +5,7 @@
+ // transfers), so games that stream from disc see plausible progress rather than instant data.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ #include <map>
+ #include <string>
+@@ -67,6 +68,9 @@ public:
+     void sys_misc(sh4::Ctx& c, ::dream::Memory& m);
+ 
+     Flash& flash() noexcept { return flash_; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     Language lang_ = Language::English;
+diff --git a/runtime/include/dream/runtime/holly/g2dma.h b/runtime/include/dream/runtime/holly/g2dma.h
+index 26f833e..c6bd5e0 100644
+--- a/runtime/include/dream/runtime/holly/g2dma.h
++++ b/runtime/include/dream/runtime/holly/g2dma.h
+@@ -7,6 +7,7 @@
+ // the end-of-DMA interrupt follows after the transfer time on the 25 MHz 16-bit bus.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ 
+@@ -34,6 +35,9 @@ public:
+         return regs_[channel * 8 + offset / 4];
+     }
+     std::uint64_t transfers = 0, bytes = 0, refused = 0, to_aica_ram = 0;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     void start(unsigned channel);
+diff --git a/runtime/include/dream/runtime/holly/intc.h b/runtime/include/dream/runtime/holly/intc.h
+index ec29bf6..0a7bb62 100644
+--- a/runtime/include/dream/runtime/holly/intc.h
++++ b/runtime/include/dream/runtime/holly/intc.h
+@@ -3,6 +3,7 @@
+ // per-level mask registers. Register block at 0x005F6900 (SB_ISTNRM .. SB_IML6ERR).
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ 
+ #include "dream/runtime/mem/dc_memory.h"
+@@ -73,6 +74,9 @@ public:
+     std::uint32_t iml2nrm = 0, iml2ext = 0, iml2err = 0;
+     std::uint32_t iml4nrm = 0, iml4ext = 0, iml4err = 0;
+     std::uint32_t iml6nrm = 0, iml6ext = 0, iml6err = 0;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     void recompute();
+diff --git a/runtime/include/dream/runtime/holly/sysblock.h b/runtime/include/dream/runtime/holly/sysblock.h
+index 60032bb..bb6f619 100644
+--- a/runtime/include/dream/runtime/holly/sysblock.h
++++ b/runtime/include/dream/runtime/holly/sysblock.h
+@@ -6,6 +6,7 @@
+ // and the ch2-DMA-end interrupt is raised.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -44,6 +45,9 @@ public:
+     struct Refused {
+         std::uint32_t dmaor = 0, src = 0, dst = 0, len = 0;
+     } first_refused, last_refused;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     void ch2_dma();
+diff --git a/runtime/include/dream/runtime/maple/maple.h b/runtime/include/dream/runtime/maple/maple.h
+index 5cccd83..f4e64ac 100644
+--- a/runtime/include/dream/runtime/maple/maple.h
++++ b/runtime/include/dream/runtime/maple/maple.h
+@@ -4,6 +4,7 @@
+ // Flycast's hw/maple (GPL-2.0, ADR 1) and the Katana Maple specification's frame layout.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -187,6 +188,9 @@ public:
+ 
+     // Called by the SPG at VBlank-out: starts the transfer when the hardware trigger is selected.
+     void vblank();
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     std::uint32_t read(std::uint32_t addr, unsigned size) override;
+     void write(std::uint32_t addr, std::uint32_t value, unsigned size) override;
+diff --git a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
+index 33b21fc..46f30ae 100644
+--- a/runtime/include/dream/runtime/mem/dc_memory.h
++++ b/runtime/include/dream/runtime/mem/dc_memory.h
+@@ -5,6 +5,7 @@
+ // log shows what it touched.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ #include <functional>
+ #include <memory>
+@@ -50,6 +51,23 @@ public:
+         }
+     }
+     std::uint32_t& word(std::uint32_t offset) { return regs_[offset >> 2]; }
++    // Saved state: the stored words (the host maps these, so it saves them in its own order).
++    void save(state::Writer& w) const {
++        w.begin("REGF", 1);
++        w.u32(base_);
++        w.vec(regs_);
++        w.end();
++    }
++    void load(state::Reader& r) {
++        r.begin("REGF", 1);
++        if (r.u32() != base_)
++            throw state::Error("state: register file at another base");
++        const std::size_t n = regs_.size();
++        r.vec(regs_);
++        if (regs_.size() != n)
++            throw state::Error("state: register file of another size");
++        r.end();
++    }
+ 
+ private:
+     std::uint32_t base_;
+@@ -80,6 +98,9 @@ public:
+     // Address-array writes with the associative bit set, which compare instead of index. Not
+     // modelled; counted so a title that relies on them shows up.
+     std::uint64_t associative_writes = 0;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     static constexpr std::uint32_t kValid = 0x100u;  // shared by the address and data arrays
+@@ -228,6 +249,9 @@ public:
+ 
+     // With MMUCR.AT set, store-queue flushes go through the UTLB instead of QACR.
+     Utlb& utlb() noexcept { return utlb_; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+     std::uint64_t sq_tlb_flushes = 0;  // bursts the UTLB translated
+     std::uint64_t sq_tlb_misses = 0;   // bursts it did not map; QACR used instead
+ 
+diff --git a/runtime/include/dream/runtime/pvr/core.h b/runtime/include/dream/runtime/pvr/core.h
+index 8c7b276..502718b 100644
+--- a/runtime/include/dream/runtime/pvr/core.h
++++ b/runtime/include/dream/runtime/pvr/core.h
+@@ -4,6 +4,7 @@
+ // stream per render is what the Vulkan renderer will consume; nothing is drawn here.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -42,6 +43,9 @@ public:
+     void reset() noexcept;
+     void feed(const std::uint32_t words[8]);
+     std::function<void(unsigned list)> on_list_end;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     std::array<ListStats, 5> lists{};
+     std::uint64_t chunks = 0, invalid = 0;
+@@ -99,6 +103,9 @@ public:
+                   list_inits = 0;
+     // Render time model: fixed cost plus per parameter word.
+     std::uint64_t render_base_cycles = 200'000, render_cycles_per_word = 4;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     void start_render();
+diff --git a/runtime/include/dream/runtime/pvr/spg.h b/runtime/include/dream/runtime/pvr/spg.h
+index c7a1f38..df7abfc 100644
+--- a/runtime/include/dream/runtime/pvr/spg.h
++++ b/runtime/include/dream/runtime/pvr/spg.h
+@@ -4,6 +4,7 @@
+ // FB_R_CTRL.vclk_div selects 27 MHz). Registers at PVR base + 0xC8..0xE0 and SPG_STATUS at +0x10C.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ #include <functional>
+ 
+@@ -36,6 +37,9 @@ public:
+     // Raised on the VBlank-out line after the interrupt: the Maple bus starts its
+     // hardware-triggered transfer here.
+     std::function<void()> on_vblank_out;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     std::uint32_t spg_hblank_int = 0x031D0000, spg_vblank_int = 0x00150104, spg_control = 0,
+                   spg_hblank = 0x007E0345, spg_load = 0x01060359, spg_vblank = 0x00150104,
+diff --git a/runtime/include/dream/runtime/sched/scheduler.h b/runtime/include/dream/runtime/sched/scheduler.h
+index 9a7ec21..3c9ed32 100644
+--- a/runtime/include/dream/runtime/sched/scheduler.h
++++ b/runtime/include/dream/runtime/sched/scheduler.h
+@@ -9,6 +9,11 @@
+ #include <string>
+ #include <vector>
+ 
++namespace dream::state {
++class Writer;
++class Reader;
++}  // namespace dream::state
++
+ namespace dream::sched {
+ 
+ constexpr std::uint64_t kSh4Clock = 200'000'000;
+@@ -39,6 +44,12 @@ public:
+     void advance(std::uint64_t cycles) { advance_to(now_ + cycles); }
+     const std::string& name(int id) const { return events_[static_cast<std::size_t>(id)].name; }
+ 
++    // Saved state: the clock and, per event, its name and deadline. Callbacks are not saved; the
++    // loading side registers the same devices in the same order and load() then checks every
++    // name and restores the deadlines.
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
++
+ private:
+     struct Event {
+         std::string name;
+diff --git a/runtime/include/dream/runtime/sh4/abi.h b/runtime/include/dream/runtime/sh4/abi.h
+index fe268de..d61e50e 100644
+--- a/runtime/include/dream/runtime/sh4/abi.h
++++ b/runtime/include/dream/runtime/sh4/abi.h
+@@ -67,6 +67,10 @@ void resume_miss(Ctx& c, ::dream::Memory& m, std::uint32_t pc);
+ void run_guest(Ctx& c, ::dream::Memory& m, std::uint32_t entry);
+ // Same, starting from a function pointer (the test harness links many programs at one base).
+ void run_guest(Ctx& c, ::dream::Memory& m, GuestFn entry);
++// Starts already resumed at `pc` (a block start with a resume entry), as run_guest continues after
++// a non-local return: every function that returns hands over to PR. Ends when control comes back
++// to `stop_pr` (the PR run_guest had when the original run started). Used to load a saved state.
++void run_guest_from(Ctx& c, ::dream::Memory& m, std::uint32_t pc, std::uint32_t stop_pr);
+ 
+ // Exceptions and interrupts. Emitted code calls deliver_irq when `c.cycles >= c.next_event`.
+ void deliver_irq(Ctx& c, ::dream::Memory& m);
+diff --git a/runtime/include/dream/runtime/sh4/dmac.h b/runtime/include/dream/runtime/sh4/dmac.h
+index 8d57c1e..af591d6 100644
+--- a/runtime/include/dream/runtime/sh4/dmac.h
++++ b/runtime/include/dream/runtime/sh4/dmac.h
+@@ -5,6 +5,7 @@
+ // texture DMA (holly::SysBlock). Channel 0/1/3 manual (auto-request) transfers copy memory here.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ #include <functional>
+ 
+@@ -44,6 +45,9 @@ public:
+     // Called when a channel finishes with IE set (the SH-4 INTC's DMTE0..3 sources).
+     std::function<void(unsigned ch)> on_transfer_end;
+     std::uint64_t manual_transfers = 0;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     void manual_dma(unsigned ch);
+diff --git a/runtime/include/dream/runtime/sh4/intc.h b/runtime/include/dream/runtime/sh4/intc.h
+index ee1e4e7..89a45b7 100644
+--- a/runtime/include/dream/runtime/sh4/intc.h
++++ b/runtime/include/dream/runtime/sh4/intc.h
+@@ -4,6 +4,7 @@
+ // at 0xFFD00000 (ICR, IPRA, IPRB, IPRC).
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ #include <optional>
+ 
+@@ -55,6 +56,9 @@ public:
+     std::uint32_t read(std::uint32_t addr, unsigned size) override;
+     void write(std::uint32_t addr, std::uint32_t value, unsigned size) override;
+     std::uint16_t ipra = 0, iprb = 0, iprc = 0, icr = 0;
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     std::uint32_t pending_ = 0;
+diff --git a/runtime/include/dream/runtime/sh4/tmu.h b/runtime/include/dream/runtime/sh4/tmu.h
+index 99fe16e..dd72864 100644
+--- a/runtime/include/dream/runtime/sh4/tmu.h
++++ b/runtime/include/dream/runtime/sh4/tmu.h
+@@ -4,6 +4,7 @@
+ // Registers at 0xFFD80000: TOCR, TSTR, then TCOR/TCNT/TCR for channels 0-2, TCPR2.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <cstdint>
+ 
+ #include "dream/runtime/mem/dc_memory.h"
+@@ -27,6 +28,9 @@ public:
+     std::uint16_t tcr(unsigned ch) const noexcept { return tcr_[ch]; }
+     std::uint32_t tcor(unsigned ch) const noexcept { return tcor_[ch]; }
+     std::uint8_t tstr() const noexcept { return tstr_; }
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+ private:
+     static constexpr std::uint16_t kUnf = 0x100, kUnie = 0x20;
+diff --git a/runtime/include/dream/runtime/state.h b/runtime/include/dream/runtime/state.h
+new file mode 100644
+index 0000000..46e45f4
+--- /dev/null
++++ b/runtime/include/dream/runtime/state.h
+@@ -0,0 +1,135 @@
++// Saved state: sections of tag (4 bytes) | version (u32) | body size (u32) | body, so a mismatch
++// names its section instead of misreading the next one. Host byte order: only the same build on
++// the same kind of host loads it (format: docs/estado-guardado.md in ikaruga-psp).
++#pragma once
++
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <stdexcept>
++#include <string>
++#include <type_traits>
++#include <vector>
++
++namespace dream::state {
++
++struct Error : std::runtime_error {
++    using std::runtime_error::runtime_error;
++};
++
++class Writer {
++public:
++    explicit Writer(std::FILE* f) : f_(f) {}
++
++    void bytes(const void* p, std::size_t n) {
++        if (n && std::fwrite(p, 1, n, f_) != n)
++            throw Error("state: short write");
++        pos_ += n;
++    }
++    template <typename T>
++    void pod(const T& v) {
++        static_assert(std::is_trivially_copyable_v<T>);
++        bytes(&v, sizeof v);
++    }
++    void u32(std::uint32_t v) { pod(v); }
++    void u64(std::uint64_t v) { pod(v); }
++    void str(const std::string& s) {
++        u32(static_cast<std::uint32_t>(s.size()));
++        bytes(s.data(), s.size());
++    }
++    template <typename T>
++    void vec(const std::vector<T>& v) {
++        static_assert(std::is_trivially_copyable_v<T>);
++        u32(static_cast<std::uint32_t>(v.size()));
++        bytes(v.data(), v.size() * sizeof(T));
++    }
++
++    // begin/end bracket one section; the size is patched in place when it ends.
++    void begin(const char tag[4], std::uint32_t version) {
++        if (open_)
++            throw Error("state: nested section");
++        bytes(tag, 4);
++        u32(version);
++        size_at_ = std::ftell(f_);
++        u32(0);
++        body_start_ = pos_;
++        open_ = true;
++    }
++    void end() {
++        const std::uint32_t size = static_cast<std::uint32_t>(pos_ - body_start_);
++        const long here = std::ftell(f_);
++        std::fseek(f_, size_at_, SEEK_SET);
++        if (std::fwrite(&size, 4, 1, f_) != 1)
++            throw Error("state: short write");
++        std::fseek(f_, here, SEEK_SET);
++        open_ = false;
++    }
++
++private:
++    std::FILE* f_;
++    std::uint64_t pos_ = 0, body_start_ = 0;
++    long size_at_ = 0;
++    bool open_ = false;
++};
++
++class Reader {
++public:
++    explicit Reader(std::FILE* f) : f_(f) {}
++
++    void bytes(void* p, std::size_t n) {
++        if (n && std::fread(p, 1, n, f_) != n)
++            throw Error("state: file ends inside section " + tag_);
++        pos_ += n;
++    }
++    template <typename T>
++    void pod(T& v) {
++        static_assert(std::is_trivially_copyable_v<T>);
++        bytes(&v, sizeof v);
++    }
++    template <typename T>
++    T get() {
++        T v{};
++        pod(v);
++        return v;
++    }
++    std::uint32_t u32() { return get<std::uint32_t>(); }
++    std::uint64_t u64() { return get<std::uint64_t>(); }
++    std::string str() {
++        std::string s(u32(), '\0');
++        bytes(s.data(), s.size());
++        return s;
++    }
++    template <typename T>
++    void vec(std::vector<T>& v) {
++        v.resize(u32());
++        bytes(v.data(), v.size() * sizeof(T));
++    }
++
++    // Opens the next section, which must carry `tag` and `version`.
++    void begin(const char tag[4], std::uint32_t version) {
++        char got[5] = {};
++        tag_ = std::string(tag, 4);
++        bytes(got, 4);
++        if (std::memcmp(got, tag, 4) != 0)
++            throw Error("state: expected section " + tag_ + ", found " + got);
++        const std::uint32_t v = u32();
++        if (v != version)
++            throw Error("state: section " + tag_ + " version " + std::to_string(v) +
++                        ", this build reads " + std::to_string(version));
++        size_ = u32();
++        body_start_ = pos_;
++    }
++    void end() {
++        if (pos_ - body_start_ != size_)
++            throw Error("state: section " + tag_ + " has " + std::to_string(size_) +
++                        " bytes, read " + std::to_string(pos_ - body_start_));
++    }
++
++private:
++    std::FILE* f_;
++    std::uint64_t pos_ = 0, body_start_ = 0;
++    std::uint32_t size_ = 0;
++    std::string tag_;
++};
++
++}  // namespace dream::state
+diff --git a/runtime/include/dream/runtime/system.h b/runtime/include/dream/runtime/system.h
+index ea92fe2..73dfe39 100644
+--- a/runtime/include/dream/runtime/system.h
++++ b/runtime/include/dream/runtime/system.h
+@@ -6,8 +6,10 @@
+ // to the poll site, which is where hardware would have resumed.
+ #pragma once
+ 
++#include "dream/runtime/state.h"
+ #include <array>
+ #include <cstdint>
++#include <functional>
+ #include <map>
+ #include <stdexcept>
+ #include <string>
+@@ -54,6 +56,9 @@ public:
+     // Delivers every interrupt SR currently lets through, most urgent first, running handlers to
+     // completion. Returns how many were delivered.
+     unsigned deliver_pending(sh4::Ctx& c, ::dream::Memory& m);
++    // Saved state (dream/runtime/state.h).
++    void save(state::Writer& w) const;
++    void load(state::Reader& r);
+ 
+     mem::DcMemory memory;
+     sched::Scheduler sched;
+@@ -71,6 +76,17 @@ public:
+     // Returns false for an unknown kind name.
+     static bool idle_kind_from_name(const std::string& name, IdleKind& kind);
+     std::uint64_t idle_skips = 0, idle_skipped_turns = 0, idle_skipped_cycles = 0;
++    // The previous turn of the idle loop that on_idle compares against; a member so a saved
++    // state carries it.
++    struct IdleTurn {
++        bool valid = false;
++        std::uint32_t pc = 0, timeout_addr = 0, timeout = 0;
++        std::uint64_t interrupts = 0, traps = 0, devices = 0;
++        sh4::Ctx ctx{};
++    } idle_prev;
++    // Called at the head of every idle_poll site before any skipping, with the guest outside any
++    // exception frame only if in_exception_frame() is false; the host takes saved states here.
++    std::function<void(sh4::Ctx& c, std::uint32_t pc)> before_idle;
+ 
+     // Diagnostics
+     std::uint64_t interrupts_delivered = 0, traps_taken = 0;
+diff --git a/runtime/src/aica/mixer.cpp b/runtime/src/aica/mixer.cpp
+index 78af596..f1668ff 100644
+--- a/runtime/src/aica/mixer.cpp
++++ b/runtime/src/aica/mixer.cpp
+@@ -1,6 +1,7 @@
+ // AICA channels, DSP and final mix; see mixer.h. Follows Flycast's sgc_if.cpp / dsp_interp.cpp
+ // closely (GPL-2.0, ADR 1) so behaviour can be compared line by line; the differences are the
+ // fixed tables (mixer_tables.inc), no CDDA/MIDI/VMU-beep inputs, and members instead of globals.
++#include "dream/runtime/state.h"
+ #include "dream/runtime/aica/mixer.h"
+ 
+ #include <algorithm>
+@@ -1059,4 +1060,40 @@ void Mixer::sample(std::int16_t& left, std::int16_t& right) {
+     right = static_cast<std::int16_t>(mixr);
+ }
+ 
++// Saved state: the DSP and the 64 channels byte for byte; the channel's host pointers differ from
++// run to run, so load rebuilds them (mixer and registers as init does, DSP slot and PLFO row from
++// saved indices, step functions from the registers as update_stream_step sets them).
++void Mixer::save(state::Writer& w) const {
++    w.begin("MIXR", 1);
++    w.pod(dsp_);
++    for (std::uint64_t v : {key_ons, key_offs, samples, nonzero_samples})
++        w.u64(v);
++    for (int i = 0; i < 64; ++i) {
++        const Channel& ch = chans_[i];
++        w.bytes(&ch, sizeof ch);
++        w.u32(ch.VolMix.DSPOut ? static_cast<std::uint32_t>(ch.VolMix.DSPOut - dsp_.MIXS)
++                               : 0xFFFFFFFFu);
++        w.u32(static_cast<std::uint32_t>(ch.lfo.plfo_scale - &kPlfoScales[0][0]));
++    }
++    w.end();
++}
++
++void Mixer::load(state::Reader& r) {
++    r.begin("MIXR", 1);
++    r.pod(dsp_);
++    for (std::uint64_t* v : {&key_ons, &key_offs, &samples, &nonzero_samples})
++        *v = r.u64();
++    for (int i = 0; i < 64; ++i) {
++        Channel& ch = chans_[i];
++        r.bytes(&ch, sizeof ch);
++        ch.mixer = this;
++        ch.ccd = reinterpret_cast<ChannelRegs*>(regs_ + static_cast<std::size_t>(i) * 0x80);
++        const std::uint32_t dsp = r.u32();
++        ch.VolMix.DSPOut = dsp == 0xFFFFFFFFu ? nullptr : &dsp_.MIXS[dsp];
++        ch.lfo.plfo_scale = &kPlfoScales[0][0] + r.u32();
++        ch.update_stream_step();
++    }
++    r.end();
++}
++
+ }  // namespace dream::aica
+diff --git a/runtime/src/sched/scheduler.cpp b/runtime/src/sched/scheduler.cpp
+index e1fa0b2..60d364a 100644
+--- a/runtime/src/sched/scheduler.cpp
++++ b/runtime/src/sched/scheduler.cpp
+@@ -3,6 +3,7 @@
+ #include <utility>
+ 
+ #include "dream/runtime/perf.h"
++#include "dream/runtime/state.h"
+ 
+ namespace dream::perf {
+ Counters counters;
+@@ -51,4 +52,32 @@ void Scheduler::advance_to(std::uint64_t target) {
+         now_ = target;
+ }
+ 
++void Scheduler::save(state::Writer& w) const {
++    w.begin("SCHD", 1);
++    w.u64(now_);
++    w.u32(static_cast<std::uint32_t>(events_.size()));
++    for (const auto& e : events_) {
++        w.str(e.name);
++        w.u64(e.deadline);
++    }
++    w.end();
++}
++
++void Scheduler::load(state::Reader& r) {
++    r.begin("SCHD", 1);
++    now_ = r.u64();
++    const std::uint32_t n = r.u32();
++    if (n != events_.size())
++        throw state::Error("state: the saved scheduler has " + std::to_string(n) +
++                           " events, this one " + std::to_string(events_.size()));
++    for (auto& e : events_) {
++        const std::string name = r.str();
++        if (name != e.name)
++            throw state::Error("state: scheduler event '" + name + "' where this build has '" +
++                               e.name + "'");
++        e.deadline = r.u64();
++    }
++    r.end();
++}
++
+ }  // namespace dream::sched
+diff --git a/runtime/src/sh4/abi_bare.cpp b/runtime/src/sh4/abi_bare.cpp
+index 2df9722..475f233 100644
+--- a/runtime/src/sh4/abi_bare.cpp
++++ b/runtime/src/sh4/abi_bare.cpp
+@@ -263,10 +263,8 @@ void resume_at(Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
+ 
+ namespace {
+ template <typename Start>
+-void run_guest_impl(Ctx& c, ::dream::Memory& m, Start start) {
+-    const std::uint32_t stop_pr = c.pr;
+-    std::uint32_t pc = 0;
+-    bool resumed = false;
++void run_guest_impl(Ctx& c, ::dream::Memory& m, Start start, std::uint32_t stop_pr,
++                    bool resumed = false, std::uint32_t pc = 0) {
+     for (;;) {
+         try {
+             if (!resumed) {
+@@ -295,11 +293,15 @@ void run_guest_impl(Ctx& c, ::dream::Memory& m, Start start) {
+ }  // namespace
+ 
+ void run_guest(Ctx& c, ::dream::Memory& m, std::uint32_t entry) {
+-    run_guest_impl(c, m, [&] { call_indirect(c, m, entry); });
++    run_guest_impl(c, m, [&] { call_indirect(c, m, entry); }, c.pr);
+ }
+ 
+ void run_guest(Ctx& c, ::dream::Memory& m, GuestFn entry) {
+-    run_guest_impl(c, m, [&] { entry(c, m); });
++    run_guest_impl(c, m, [&] { entry(c, m); }, c.pr);
++}
++
++void run_guest_from(Ctx& c, ::dream::Memory& m, std::uint32_t pc, std::uint32_t stop_pr) {
++    run_guest_impl(c, m, [] {}, stop_pr, true, pc);
+ }
+ 
+ void call_indirect(Ctx& c, ::dream::Memory& m, std::uint32_t target) {
+diff --git a/runtime/src/state.cpp b/runtime/src/state.cpp
+new file mode 100644
+index 0000000..89ac0ad
+--- /dev/null
++++ b/runtime/src/state.cpp
+@@ -0,0 +1,357 @@
++// save/load of every runtime piece but the AICA mixer (aica/mixer.cpp), one section each.
++// Callbacks, wiring and scheduler ids are not saved: the loading host builds the system the same
++// way and load only overwrites what changes while the guest runs.
++#include "dream/runtime/state.h"
++
++#include "dream/runtime/aica/aica.h"
++#include "dream/runtime/aica/arm7.h"
++#include "dream/runtime/aica/rtc.h"
++#include "dream/runtime/fenv.h"
++#include "dream/runtime/hle/bios.h"
++#include "dream/runtime/holly/g2dma.h"
++#include "dream/runtime/holly/intc.h"
++#include "dream/runtime/holly/sysblock.h"
++#include "dream/runtime/maple/maple.h"
++#include "dream/runtime/mem/dc_memory.h"
++#include "dream/runtime/pvr/core.h"
++#include "dream/runtime/pvr/spg.h"
++#include "dream/runtime/sh4/dmac.h"
++#include "dream/runtime/sh4/intc.h"
++#include "dream/runtime/sh4/tmu.h"
++#include "dream/runtime/system.h"
++
++namespace dream {
++
++// One field list per piece, used by both directions: S(x) writes or reads x as raw bytes.
++#define DREAM_STATE_IO(Class, TAG, VER, FIELDS)          \
++    void Class::save(state::Writer& w) const {           \
++        w.begin(TAG, VER);                               \
++        auto S = [&w](const auto& x) { w.pod(x); };      \
++        FIELDS;                                          \
++        w.end();                                         \
++    }                                                    \
++    void Class::load(state::Reader& r) {                 \
++        r.begin(TAG, VER);                               \
++        auto S = [&r](auto& x) { r.pod(x); };            \
++        FIELDS;                                          \
++        r.end();                                         \
++    }
++
++namespace sh4 {
++DREAM_STATE_IO(Intc, "INTC", 1, (S(ipra), S(iprb), S(iprc), S(icr), S(pending_)))
++DREAM_STATE_IO(Tmu, "TMU_", 1,
++               (S(tcor_), S(tcr_mode_), S(tcr_), S(tstr_), S(tocr_), S(shift_), S(running_),
++                S(base_)))
++DREAM_STATE_IO(Dmac, "DMAC", 1, (S(ch_), S(dmaor_), S(manual_transfers)))
++}  // namespace sh4
++
++namespace holly {
++DREAM_STATE_IO(Intc, "HINT", 1,
++               (S(istnrm), S(istext), S(isterr), S(iml2nrm), S(iml2ext), S(iml2err), S(iml4nrm),
++                S(iml4ext), S(iml4err), S(iml6nrm), S(iml6ext), S(iml6err)))
++DREAM_STATE_IO(G2Dma, "G2DM", 1, (S(regs_), S(transfers), S(bytes), S(refused), S(to_aica_ram)))
++DREAM_STATE_IO(SysBlock, "SYSB", 1,
++               (S(regs_), S(ch2_yuv_transfers), S(ch2_transfers), S(ch2_ta_bytes),
++                S(ch2_texture_bytes), S(ch2_errors), S(sort_dma_starts), S(first_refused),
++                S(last_refused)))
++}  // namespace holly
++
++namespace pvr {
++DREAM_STATE_IO(Spg, "SPG_", 1,
++               (S(spg_hblank_int), S(spg_vblank_int), S(spg_control), S(spg_hblank), S(spg_load),
++                S(spg_vblank), S(spg_width), S(vclk_full_), S(line_cycles_), S(scanline_),
++                S(vsync_), S(fieldnum_), S(frames_)))
++
++void Ta::save(state::Writer& w) const {
++    w.begin("TA__", 1);
++    w.pod(lists);
++    w.pod(chunks);
++    w.pod(invalid);
++    w.pod(current_list);
++    w.vec(stream);
++    w.pod(state_);
++    w.pod(pending_v64_);
++    w.end();
++}
++
++void Ta::load(state::Reader& r) {
++    r.begin("TA__", 1);
++    r.pod(lists);
++    r.pod(chunks);
++    r.pod(invalid);
++    r.pod(current_list);
++    r.vec(stream);
++    r.pod(state_);
++    r.pod(pending_v64_);
++    r.end();
++}
++
++void Core::save(state::Writer& w) const {
++    w.begin("PVR_", 1);
++    w.pod(regs_);
++    w.pod(fifo_buf_);
++    w.pod(fifo_fill_);
++    w.pod(seen_ta_data_);
++    w.pod(yuv_mb_);
++    w.pod(yuv_fill_);
++    w.pod(yuv_index_);
++    w.pod(renders);
++    w.pod(renders_done);
++    w.pod(frame_swaps);
++    w.pod(yuv_words);
++    w.pod(texture_words);
++    w.pod(list_inits);
++    w.pod(render_base_cycles);
++    w.pod(render_cycles_per_word);
++    w.end();
++    ta.save(w);
++}
++
++void Core::load(state::Reader& r) {
++    r.begin("PVR_", 1);
++    r.pod(regs_);
++    r.pod(fifo_buf_);
++    r.pod(fifo_fill_);
++    r.pod(seen_ta_data_);
++    r.pod(yuv_mb_);
++    r.pod(yuv_fill_);
++    r.pod(yuv_index_);
++    r.pod(renders);
++    r.pod(renders_done);
++    r.pod(frame_swaps);
++    r.pod(yuv_words);
++    r.pod(texture_words);
++    r.pod(list_inits);
++    r.pod(render_base_cycles);
++    r.pod(render_cycles_per_word);
++    r.end();
++    ta.load(r);
++}
++}  // namespace pvr
++
++namespace aica {
++DREAM_STATE_IO(Arm7, "ARM7", 1,
++               (S(r_), S(n_flag_), S(z_flag_), S(c_flag_), S(v_flag_), S(irq_enable_),
++                S(fiq_enable_), S(enabled_), S(mode_), S(ticks_), S(aica_interr_), S(e68k_out_),
++                S(aica_reg_l_), S(e68k_reg_l_), S(e68k_reg_m_), S(instructions), S(fiqs), S(swis),
++                S(undefined_ops), S(fiqs_by_level)))
++DREAM_STATE_IO(Rtc, "RTC_", 1, (S(seconds_), S(enable_)))
++
++void Aica::save(state::Writer& w) const {
++    w.begin("AICA", 1);
++    w.pod(regs_);
++    w.pod(last_left);
++    w.pod(last_right);
++    w.pod(timer_step_);
++    w.pod(timer_left_);
++    for (std::uint64_t v : {samples, timer_irqs, sh4_irq_raises, channel_writes, dsp_writes,
++                            internal_dma_requests, scpu_to_arm, scpu_to_sh4, arm_side_reg_writes,
++                            sh4_side_reg_writes})
++        w.u64(v);
++    w.end();
++    arm.save(w);
++    mixer.save(w);
++}
++
++void Aica::load(state::Reader& r) {
++    r.begin("AICA", 1);
++    r.pod(regs_);  // before the mixer: its channels point into these registers
++    r.pod(last_left);
++    r.pod(last_right);
++    r.pod(timer_step_);
++    r.pod(timer_left_);
++    for (std::uint64_t* v : {&samples, &timer_irqs, &sh4_irq_raises, &channel_writes, &dsp_writes,
++                             &internal_dma_requests, &scpu_to_arm, &scpu_to_sh4,
++                             &arm_side_reg_writes, &sh4_side_reg_writes})
++        *v = r.u64();
++    r.end();
++    arm.load(r);
++    mixer.load(r);
++}
++}  // namespace aica
++
++namespace hle {
++// The disc is not saved: the host reopens the same image and attaches it again.
++DREAM_STATE_IO(Bios, "BIOS", 1, (S(gd_), S(sectors_read)))
++}  // namespace hle
++
++namespace maple {
++namespace {
++// Port devices: a kind byte, then the device's own state (0 none, 1 controller, 2 memory card).
++void save_device(state::Writer& w, const Device* d) {
++    if (auto* pad = dynamic_cast<const Controller*>(d)) {
++        w.pod(std::uint8_t{1});
++        w.pod(pad->state);
++        w.pod(pad->condition_reads);
++    } else if (auto* card = dynamic_cast<const MemoryCard*>(d)) {
++        w.pod(std::uint8_t{2});
++        w.vec(card->image());
++        for (std::uint64_t v : {card->block_reads, card->block_writes, card->media_info_reads,
++                                card->screen_writes})
++            w.u64(v);
++    } else {
++        w.pod(std::uint8_t{0});
++    }
++}
++
++void load_device(state::Reader& r, Device* d) {
++    const auto kind = r.get<std::uint8_t>();
++    if (auto* pad = dynamic_cast<Controller*>(d); pad && kind == 1) {
++        r.pod(pad->state);
++        r.pod(pad->condition_reads);
++    } else if (auto* card = dynamic_cast<MemoryCard*>(d); card && kind == 2) {
++        std::vector<std::uint8_t> image;
++        r.vec(image);
++        // The card file on disk already holds every block the guest saved (save() writes through);
++        // the image is restored in memory only, without writing the file again.
++        if (!card->set_image(image))
++            throw state::Error("state: memory card image of the wrong size");
++        for (std::uint64_t* v : {&card->block_reads, &card->block_writes, &card->media_info_reads,
++                                 &card->screen_writes})
++            *v = r.u64();
++    } else if (kind != 0 || d) {
++        throw state::Error("state: the maple devices attached differ from the saved ones");
++    }
++}
++}  // namespace
++
++void Bus::save(state::Writer& w) const {
++    w.begin("MAPL", 1);
++    for (std::uint32_t v : {mdstar, mdtsel, mden, mdst, msys, mshtcl, mdapro, mmsel})
++        w.u32(v);
++    w.u64(transfers);
++    w.u64(frames);
++    w.u64(no_device);
++    w.pod(frames_by_recipient);
++    w.pod(frames_by_command);
++    w.u32(static_cast<std::uint32_t>(out_.size()));
++    for (const auto& p : out_) {
++        w.u32(p.addr);
++        w.vec(p.words);
++    }
++    w.pod(trigger_pending_reset_);
++    for (unsigned port = 0; port < kPorts; ++port) {
++        save_device(w, ports_[port].get());
++        for (const auto& e : expansion_[port])
++            save_device(w, e.get());
++    }
++    w.end();
++}
++
++void Bus::load(state::Reader& r) {
++    r.begin("MAPL", 1);
++    for (std::uint32_t* v : {&mdstar, &mdtsel, &mden, &mdst, &msys, &mshtcl, &mdapro, &mmsel})
++        *v = r.u32();
++    transfers = r.u64();
++    frames = r.u64();
++    no_device = r.u64();
++    r.pod(frames_by_recipient);
++    r.pod(frames_by_command);
++    out_.resize(r.u32());
++    for (auto& p : out_) {
++        p.addr = r.u32();
++        r.vec(p.words);
++    }
++    r.pod(trigger_pending_reset_);
++    for (unsigned port = 0; port < kPorts; ++port) {
++        load_device(r, ports_[port].get());
++        for (auto& e : expansion_[port])
++            load_device(r, e.get());
++    }
++    r.end();
++}
++}  // namespace maple
++
++namespace mem {
++DREAM_STATE_IO(Utlb, "UTLB", 1, (S(addr_), S(data1_), S(data2_), S(associative_writes)))
++
++// The boot ROM image is not saved (the HLE BIOS never loads one).
++void DcMemory::save(state::Writer& w) const {
++    w.begin("MEM_", 1);
++    w.bytes(ram_.get(), kRamSize);
++    w.bytes(vram_.get(), kVramSize);
++    w.bytes(aram_.get(), kAramSize);
++    w.bytes(flash_.get(), kFlashSize);
++    w.bytes(ocram_.get(), kOcramSize);
++    w.pod(vram_write_epoch);
++    w.pod(vram_page_epoch);
++    w.pod(write_hash);
++    w.pod(writes_hashed);
++    w.pod(tra);
++    w.pod(expevt);
++    w.pod(intevt);
++    w.pod(sq_);
++    w.pod(qacr_);
++    w.pod(ccn_);
++    w.pod(sq_tlb_flushes);
++    w.pod(sq_tlb_misses);
++    w.end();
++    utlb_.save(w);
++}
++
++void DcMemory::load(state::Reader& r) {
++    r.begin("MEM_", 1);
++    r.bytes(ram_.get(), kRamSize);
++    r.bytes(vram_.get(), kVramSize);
++    r.bytes(aram_.get(), kAramSize);
++    r.bytes(flash_.get(), kFlashSize);
++    r.bytes(ocram_.get(), kOcramSize);
++    r.pod(vram_write_epoch);
++    r.pod(vram_page_epoch);
++    r.pod(write_hash);
++    r.pod(writes_hashed);
++    r.pod(tra);
++    r.pod(expevt);
++    r.pod(intevt);
++    r.pod(sq_);
++    r.pod(qacr_);
++    r.pod(ccn_);
++    r.pod(sq_tlb_flushes);
++    r.pod(sq_tlb_misses);
++    r.end();
++    utlb_.load(r);
++}
++}  // namespace mem
++
++// The SH-4 side and the devices System owns. The other devices (PVR, AICA, Maple, BIOS, DMAC,
++// SysBlock, G2-DMA, RTC) belong to the host, which saves them after this in its own order.
++void System::save(state::Writer& w) const {
++    if (nesting != 0)
++        throw state::Error("state: cannot save inside an exception handler");
++    w.begin("SYS_", 1);
++    w.pod(ctx);
++    w.pod(idle_prev);
++    for (std::uint64_t v : {idle_skips, idle_skipped_turns, idle_skipped_cycles,
++                            interrupts_delivered, traps_taken, device_accesses, task_switch_rtes})
++        w.u64(v);
++    w.end();
++    sched.save(w);
++    intc.save(w);
++    tmu.save(w);
++    holly.save(w);
++    spg.save(w);
++    memory.save(w);
++}
++
++void System::load(state::Reader& r) {
++    r.begin("SYS_", 1);
++    r.pod(ctx);
++    r.pod(idle_prev);
++    for (std::uint64_t* v : {&idle_skips, &idle_skipped_turns, &idle_skipped_cycles,
++                             &interrupts_delivered, &traps_taken, &device_accesses,
++                             &task_switch_rtes})
++        *v = r.u64();
++    r.end();
++    sched.load(r);
++    intc.load(r);
++    tmu.load(r);
++    holly.load(r);
++    spg.load(r);
++    memory.load(r);
++    // The host FPU follows the guest's FPSCR (rounding, flush to zero) as write_fpscr leaves it.
++    fenv::apply(fenv::from_fpscr(ctx.fpscr));
++}
++
++#undef DREAM_STATE_IO
++
++}  // namespace dream
+diff --git a/runtime/src/system.cpp b/runtime/src/system.cpp
+index 2102e34..d1eac15 100644
+--- a/runtime/src/system.cpp
++++ b/runtime/src/system.cpp
+@@ -143,13 +143,9 @@ bool System::idle_kind_from_name(const std::string& name, IdleKind& kind) {
+ // turn that could reach next_event or end the loop on the timeout. Those turns run as translated,
+ // so interrupts land at the same cycle as without skipping.
+ void System::on_idle(sh4::Ctx& c, ::dream::Memory& m, std::uint32_t pc) {
+-    struct Turn {
+-        bool valid = false;
+-        std::uint32_t pc = 0, timeout_addr = 0, timeout = 0;
+-        std::uint64_t interrupts = 0, traps = 0, devices = 0;
+-        sh4::Ctx ctx{};
+-    };
+-    static Turn prev;
++    if (before_idle)
++        before_idle(c, pc);
++    IdleTurn& prev = idle_prev;
+     if (idle_loops.find(pc) == idle_loops.end())
+         return;
+     const std::uint32_t timeout_addr = m.read32(c.r[15]);
