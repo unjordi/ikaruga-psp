@@ -331,3 +331,75 @@ escena contra Flycast (paso 35) o el recorrido de capítulos (72) muestra una di
 comportamiento (no de píxeles) sin otra causa, entonces se abre un paso con el experimento:
 build PC sin FTZ (`set_flush` vacío) contra el normal, `--write-hash` y captura en el punto de la
 diferencia.
+
+## 54. Costo del AICA
+
+**Pregunta.** ¿Cuánto cuesta el AICA y cuánto ARM ejecuta por segundo de juego?
+
+**Cómo lo medí.** El lanzador de PC no tiene interruptor para el mezclador ni para el DSP:
+`--no-audio`/`--audio` solo deciden si la salida va al dispositivo
+(`third_party/dream-recomp/runtime/src/aica/aica.cpp`, `Aica::sample_tick`: `arm.run`,
+`step_timers`, `mixer.sample` se llaman siempre). No hay `perf` en la máquina (ya anotado en
+`docs/medicion-pc.md:90`). Medí lo que sí se puede: tres corridas de 6000 cuadros con cada opción y el
+reporte del AICA.
+
+```
+for m in --no-audio --audio; do for i in 1 2 3; do
+  $B --config $T --rtc-seed 1 --press $P --max-frames 6000 --unthrottled $m | grep -E '^host|AICA'
+done; done
+```
+
+**Resultado.**
+
+- Tiempo de host: 10,22–10,46 s en las seis corridas, sin diferencia entre `--no-audio` y `--audio`
+  (la salida no cuesta nada medible; lo caro se emula siempre).
+- 100,1 s de guest (6000 cuadros): **291 012 163 instrucciones ARM = 2,9 M instr/s de juego**,
+  4 414 537 muestras (44,1 kHz), 100 136 FIQ, 134 656 interrupciones de timer, 944 key-on, DSP en
+  marcha, 4 260 887 de las 4 414 537 muestras distintas de 0 (el juego sí suena).
+- Histograma de PC del ARM: las 11 direcciones más frecuentes son `0x1d10–0x1d48` y `0xd60/0xd64`;
+  juntas son la gran mayoría de las muestras. Es un **bucle de espera del driver de sonido** (gira
+  esperando el FIQ del timer), no trabajo.
+- La parte del AICA en el tiempo de host sigue siendo la de `docs/medicion-pc.md:117-129`: ≈17 %
+  (mezclador 10,8 %, de ello DSP 6,8 %; ARM7 5,1 %).
+
+**Propuesta para el plan.** (b) **Fundir 54 en 55** y hacerlo concreto:
+
+- 55a. Interruptor de compilación en `Aica::sample_tick` (`aica.cpp`): sin mezclador ni DSP mientras
+  no haya salida de audio en la PSP (paso 71). Prueba: `velocidad` en PPSSPP antes/después;
+  contraprueba: `--write-hash` del build `double` igual (el guest no lee la salida del mezclador; si
+  el hash cambia, el juego lee algo del mezclador y el interruptor no sirve).
+- 55b. Idle-skip del ARM: cuando el PC del ARM está en `0x1d10–0x1d48` sin FIQ pendiente, saltar al
+  siguiente evento del timer (`Arm7::run`, `runtime/src/aica/arm7.cpp`). Medir antes cuántas de las
+  2,9 M instr/s caen en ese bucle (el histograma del reporte ya lo da por muestra).
+
+## 56. Otros bucles de espera
+
+**Pregunta.** ¿Dónde gira el guest además de `kmWaitVBlank`?
+
+**Cómo lo medí.** Muestreo de PC del SH-4 cada 20 000 ciclos en 6000 cuadros (1 000 996 muestras;
+cada línea trae pc y pr), simbolizado con `games/ikaruga/symbols.tsv`, por ventanas de 250 cuadros:
+
+```
+$B --config $T --rtc-seed 1 --press $P --max-frames 6000 --sample 20000 --sample-file sample.txt
+```
+
+**Resultado.**
+
+| bucle | dirección | cuándo | parte de las muestras |
+|---|---|---|---|
+| `kmWaitVBlank` → `kmyRequestCallback` → `kmyiDefaultCallback` (ya en `[idle]`) | `0x0C0370BA` / `0x0C03CD60` / `0x0C03B320` | siempre | 60–97 % según la ventana |
+| espera del GD-ROM: `gdFsWaitCompleteReq` (`0x0C040DEC`) → `gdFsGetStat` (`0x0C0414A0`) → syscalls `gdGdcGetCmdStat` (`0x0C04B614`, desde `0x0C03F294`) y `gdGdcExecServer` (`0x0C04B628`, desde `0x0C03F482`) | bucle en `0x0C040E14–0x0C040E18` | arranque (0–250, 82 % de la ventana), menú→capítulo (1250–1300, 1400–1500, 1850–1950) | **3,7 %** del total (37 116 muestras) |
+| `sdBankDownloadCalculateCheckSum` (`0x0C051028`) | — | arranque | 0,2 %; es trabajo, no espera |
+
+No hubo pausa ni cambio de capítulo en la corrida (las pulsaciones no llegan), así que esos dos no
+están medidos.
+
+La espera del GD-ROM ya es barata en el runtime: el HLE adelanta el scheduler hasta el reloj del
+guest en cada `GetCmdStat`/`ExecServer` (`runtime/src/hle/bios.cpp:488-512`), de modo que el bucle
+da pocas vueltas por lectura; lo que cuesta es que cada vuelta es una llamada de syscall.
+
+**Propuesta para el plan.** (c) **Reducir el 56:** solo cargas de ≈1–4 s de guest al arrancar y
+al entrar al capítulo, ≈3,7 % del guest y fuera del juego. Un tipo nuevo de `[idle]`
+(`gdfs_wait_complete`, cabeza en `0x0C040E14`: saltar hasta el siguiente evento `gdrom-hle` del
+scheduler) es posible pero **va al final de la sección de velocidad**, porque no toca el capítulo 1.
+Pausa y cambio de capítulo: medirlos con el mismo `--sample` cuando el paso 72 llegue a ellos.
