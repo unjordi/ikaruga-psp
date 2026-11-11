@@ -328,6 +328,7 @@ int main(int argc, char** argv) {
     host::video_set_clip(cfg.clip);
     host::video_set_fog(cfg.fog);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
+    host::input_config(path_in_dir("ikaruga.cfg").c_str());
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
         "rtc_seed %" PRIu32 " texturas %d texturas_kb %" PRIu32, cfg.capture_at, cfg.max_frames,
