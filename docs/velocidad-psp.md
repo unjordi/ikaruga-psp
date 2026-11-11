@@ -203,6 +203,15 @@ Con las pulsaciones de `medir-velocidad.sh` el PC float y el PC double difieren 
 | (b') EBOOT float vs PC double sin entrada | PASA: sin entrada la contraprueba no discrimina |
 | control: EBOOT double (sin 0009) vs PC double, `PULSAR` `HASTA=2400` | FALLA también en 2040 |
 
+Resto de la aceptación con el EBOOT float final (`build/eboot-noftz`, md5 `f2bb011b…`) y el binario
+de PC float (`DREAM_RECOMP=build/dream-recomp`), 2026-11-10:
+
+| prueba | resultado |
+|---|---|
+| (c) `test-psp-titulo.sh … --todas` | PASA: (a) 28,43 dB en el cuadro 1243; (b) sin texturas 9,46 dB; (c) contra el cuadro 800 de PC 7,37 dB |
+| (e) las 8 de `--todas` | ok: arranque, redondeo, rtc, carpeta, vmu, salida-suspension, igual-pc, geometria (IoU 0,6055; su contraprueba sin dibujo da IoU 0 y falla como debe) |
+| (d) `medir-velocidad.sh --solo 2600` | 0,0869x (meta 0,085x) |
+
 La divergencia de 1983 **ya existía en double** (control). Es la escritura nº 164 579 168 en
 `0x8C00EFA0` (fr1 guardado por `njGetTranslation` 0x0C014740, llamado desde 0x0C06D576): PC `0`,
 PSP `0x057DE800`. Un PC compilado sin FTZ/DAZ (experimento, no conservado) iguala esa escritura y
@@ -282,3 +291,22 @@ de ~2 MB para la copia RGBA temporal de la decodificación (hasta 2 MB para 512�
 - El parche de páginas sucias marca solo escrituras que pasan por `DcMemory::resolve`; si algún
   camino escribiera VRAM con `vram()` directo, la caché no se enteraría (no encontré ninguno en el
   runtime parchado).
+
+### Qué NO verifiqué en la fila 9b y dónde está mi punto ciego
+
+- La igualdad PC↔PSP con `float` solo está probada **sin entrada (60…600) y con las pulsaciones del
+  capítulo 1 hasta el cuadro 1980**. Desde el 1983 difieren, y también en `double`: la prueba por
+  defecto (sin entrada) no ejercita FIPR/FTRV, así que es ciega a esta fila. No arreglé ni localicé
+  del todo la divergencia de 1983 (pista: denormales fuera de las tres operaciones).
+- La contraprueba (b) solo discrimina con `PULSAR`; sin entrada el EBOOT float pasa contra el PC
+  double.
+- `medir-velocidad` del EBOOT final: una sola corrida (las otras compilaciones daban corridas
+  idénticas entre sí, pero esta no la repetí). Otros agentes corrían PPSSPP en la misma máquina en
+  ratos; esperé a que no hubiera ninguno antes de lanzar cada prueba, pero no controlo la carga del
+  host fuera de PPSSPP.
+- VFPU no probada. Nada en hardware real: que el Allegrex real redondee como PPSSPP no lo sé.
+- No revisé que `float` deje la imagen del capítulo 1 "bien" frente a Flycast; solo IoU de geometría
+  contra el PC float.
+- `build-psp-ikaruga.sh` reutiliza `obj/gen` aunque cambie `ops.h`: un primer intento midió un EBOOT
+  sin el cambio. Rehíce con `obj/gen` borrado; no cambié el script (lo digo en primer-uso).
+
