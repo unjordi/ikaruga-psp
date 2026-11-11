@@ -28,6 +28,12 @@ timeout no sea 0. Lo cambia el handler de la interrupción de VBlank.
   `k = min((next_event − cycles − 1) / d, timeout − 1)` vueltas: `cycles += k·d`, timeout y `r3`
   bajan `k`. La vuelta que alcanza `next_event` corre traducida, así que la interrupción cae en el
   mismo ciclo que sin salto, y el timeout nunca llega a 0 por un salto.
+- Costo por sondeo en la PSP (`patches/dream-recomp/0012-idle-skip-cheap.patch`, mismas decisiones):
+  las cabezas declaradas viven en una tabla lineal (`System::IdleTable`, hasta 8), la vuelta anterior
+  (`idle_prev`) se compara en el sitio —`Ctx` salvo `r3`, `cycles` y `next_event`, en dos `memcmp`— y
+  solo se copia entera cuando la vuelta difiere; una vuelta igual actualiza esos tres campos y el
+  timeout. `k` se divide en 32 bits cuando `next_event − cycles − 1` y `d` caben. `IdleTurn` y el
+  estado guardado no cambian.
 - Desactivable: sin entrada `[idle]` no se emite nada; `--no-idle-skip` en el lanzador deja vacía
   la tabla del runtime (el `idle_poll` emitido queda como un retorno inmediato). El reporte añade
   `idle skips: N (T loop turns, C cycles)`.
