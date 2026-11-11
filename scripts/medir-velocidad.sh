@@ -6,7 +6,7 @@
 # Prints one line per run: case, run, speed (from the "capture written" line), host_s,
 # draw_ms_per_render (last video line), texture counters (last textures line), wall seconds.
 # Needs PROBAR_DISCO (real disc HD area). Logs go to DIR (default build/psp/evidencia/velocidad).
-# Only one PPSSPP at a time: the runs are sequential.
+# Only one PPSSPP at a time: the runs are sequential. Exits 1 if a run gave no speed.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -58,7 +58,8 @@ correr() {  # correr <caso> <cuadro> <pulsar> <segundos> <vez>
 {
   echo "# medir-velocidad $(date -u +%FT%TZ) eboot $(sha256sum "$EBOOT" | cut -c1-12)"
   for vez in $(seq 1 "$veces"); do
-    [[ -z "$solo" || "$solo" == 2600 ]] && correr juego 2600 "$PRESSES" 2400 "$vez"
-    [[ -z "$solo" || "$solo" == 1243 ]] && correr titulo 1243 "start@700" 900 "$vez"
+    if [[ -z "$solo" || "$solo" == 2600 ]]; then correr juego 2600 "$PRESSES" 2400 "$vez"; fi
+    if [[ -z "$solo" || "$solo" == 1243 ]]; then correr titulo 1243 "start@700" 900 "$vez"; fi
   done
 } | tee "$OUT/resumen.txt"
+! grep -q "speed FALLO" "$OUT/resumen.txt"

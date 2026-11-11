@@ -2,12 +2,12 @@
 # Builds Ikaruga for the PSP from dream-recomp's core (third_party/dream-recomp plus
 # patches/dream-recomp/*.patch, applied to a copy), the translated C++ in <dir-gen>, and the host
 # stubs in psp/stubs, inside the pinned PSPDEV toolchain image (scripts/psp/Dockerfile).
-#   scripts/build-psp-ikaruga.sh <dir-gen> [--variantes=mix,Os] [--limpio]
+#   scripts/build-psp-ikaruga.sh <dir-gen> [--variantes=mix[,Os,O2]] [--limpio]
 # Variants, each built in build/psp/ikaruga/<v>/ (OPT_RT: runtime, stubs, main.cpp; OPT_GEN: generated):
 #   mix  OPT_RT=-O2 OPT_GEN=-Os  default: build/psp/ikaruga/ikaruga.elf and EBOOT.PBP
 #   Os   OPT_RT=-Os OPT_GEN=-Os  build/psp/ikaruga/ikaruga-Os.elf and EBOOT-Os.PBP
 #   O2   OPT_RT=-O2 OPT_GEN=-O2  build/psp/ikaruga/ikaruga-O2.elf (no EBOOT: does not fit in 64 MB)
-# Default --variantes=mix,Os; --solo-o2 is --variantes=O2; --solo-os is --variantes=Os (then EBOOT.PBP is the -Os
+# Default --variantes=mix; --solo-o2 is --variantes=O2; --solo-os is --variantes=Os (then EBOOT.PBP is the -Os
 # one); --limpio drops previous objects first.
 # OPT_RT / OPT_GEN in the environment override the flags of the mix variant.
 # Env: DREAM_RECOMP=<dream-recomp checkout> instead of third_party/dream-recomp.
@@ -26,7 +26,7 @@ OUT="$REPO/build/psp/ikaruga"
 USAGE_LINES='2,16p'
 FPU_DOUBLE="${DREAM_FPU_DOUBLE:-0}" SOFT_DAZ="${DREAM_SOFT_DAZ:-${DREAM_FPU_DOUBLE:-0}}"
 
-gen="" limpio=0 variants=(mix Os)
+gen="" limpio=0 variants=(mix)
 for arg in "$@"; do
   case "$arg" in
     --limpio) limpio=1 ;;
