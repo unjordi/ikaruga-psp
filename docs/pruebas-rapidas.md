@@ -214,6 +214,41 @@ con `dibujar_desde` compilado, 522,983: la rama nueva no cuesta nada medible.
 | 9b: imagen float vs Flycast | no revisado | — |
 | 9b: `build-psp-ikaruga.sh` reusa `obj/gen` | me afecta poco: solo cambié `main.cpp` (objeto de runtime, se recompila) | `strings` del ELF tiene `dibujar_desde` |
 
+Filas de cada tabla de `velocidad-psp.md` (EBOOT histórico = construido en otra fila, no lo
+reconstruí; esta fila no cambia ningún EBOOT salvo la clave `dibujar_desde`, que vale 0 al medir):
+
+| tabla / fila | ¿aplica a esta fila? | evidencia |
+|---|---|---|
+| Línea base: juego 2600 corrida 1 / corrida 2 (0,0405) | no, EBOOT histórico | hoy una corrida: 0,0830, host_s 522,983 |
+| Línea base: título 1243 corrida 1 / corrida 2 (0,1453) | no, histórico | hoy 0,1458, host_s 142,406 |
+| A9: título 300–1380 / juego 1500–1860 / juego 2040–2600 | no | ver tabla anterior |
+| Cambio 2: develop (0,0405) | no, histórico | — |
+| Cambio 2: solo páginas sucias `velocidad-dirty` (0,0409) | no, histórico | — |
+| Cambio 2: páginas sucias + espacio primero `velocidad-cache2` (0,0517) | no, histórico | — |
+| Cambio 3: caché `velocidad-cache2` (0,0517) | no, histórico | — |
+| Cambio 3: caché + A3 entero `velocidad-exact2` (0,0516) | no: revertido, no existe en el árbol | — |
+| Cambio 4: caché 2 MB `cache2` (over_budget 10 907) | sí como contraprueba: `texturas_kb=2048` en `test-psp-texturas-juego` (c) | 10 907 rechazos, PPSSPP 37 s |
+| Cambio 4: caché 2,5 MB sin búfer de ROM `nobios` (over_budget 0) | sí: es el default que corre todo | over_budget 0 en `build/ev-vel/juego-1` y en texturas-juego (a) |
+| Cambio 5: `velocidad-nobios` (0,0518) | no, histórico (double) | — |
+| Cambio 5: + memo `velocidad-a5` (0,0528) | no: revertido | — |
+| Diagnóstico: `velocidad-nobios` | no, histórico | — |
+| Diagnóstico: `float` `velocidad-diagfloat` (0,0902) | no: código no conservado | — |
+| 9b: `velocidad-nobios` (fila 9) | no, histórico | — |
+| 9b: float (parche 0009) 0,0869 | sí, es el árbol actual | hoy 0,0830 (explicación abajo) |
+| 9b: float + vaciado de denormales por software (0,0834) | no: revertido | — |
+| 9b igualdad (a): EBOOT float vs PC float, sin entrada, 60…600 | sí: es `test-psp-igual-pc.sh` por omisión, que cambió | PASA 10 cuadros, 13 s (`HASTA=600`); `HASTA=240` PASA 4 cuadros, 10 s |
+| 9b igualdad (a'): `PULSAR` capítulo 1, `HASTA=1980` | aplica (mismo script), no corrida | — |
+| 9b igualdad (a''): `HASTA=2400` (falla en 1983) | no se persigue (divergencia `float`, regla de la fila); no corrida | — |
+| 9b (b): contraprueba EBOOT float vs PC double, `HASTA=1980` | requiere un PC double; no corrida | — |
+| 9b (b'): EBOOT float vs PC double sin entrada | no corrida (no discrimina, según 9b) | — |
+| 9b control: EBOOT double vs PC double `HASTA=2400` | es la prueba de igualdad del port (`DREAM_FPU_DOUBLE=1`); no corrida | — |
+| 9b (c): `test-psp-titulo.sh --todas` | (a)(b)(c) sí; `--todas` lo corre el orquestador | 28,43 / 9,46 / 7,37 dB |
+| 9b (e): las 8 de `--todas` | igual-pc y geometría sí; arranque, redondeo, rtc, carpeta, vmu, salida-suspension no | igual-pc PASA; geometría 947 = 947 |
+| 9b (d): `medir-velocidad --solo 2600` | sí (remedido) | 0,0830 |
+| A6a: `velocidad-nobios` / + SPG `velocidad-a6` | no: revertido | — |
+| Resultado (a), (b), (c) de la fila 9 | (a) remedido 0,0830; (b) parcial como 9b (c)/(e); (c) sin `--psnr-ref` | PASS (a) y (c), PSNR 17,92 dB |
+| RAM: develop / `cache2` / final `nobios` | no, histórico; esta fila no reserva memoria | hoy in_use 35 053 624, bloque mayor 1 088 KB, kernel 764 KB |
+
 **0,0830 frente al 0,0869 de la fila 9b.** No lo causa esta fila: el EBOOT de develop sin mis
 cambios (paso 1) ya daba host_s 522,985. Lo que cambió es el dibujo (draw_ms/render del 2600: 26,38
 hoy contra 11,37 en 9b). Puede venir del EBOOT `eboot-noftz` de 9b, armado sobre otro árbol (quizá sin
