@@ -15,6 +15,10 @@
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
 #      VMU.BIN left after it (removed if there is none).
+#      PROBAR_TECLA=KEY@N: once ikaruga.log has a "hash" line at guest frame >= N, focus the
+#      PPSSPP window and hold the X key KEY (xdotool keysym, e.g. space) until a hash line at
+#      frame >= N+20, then release it; put hash_every=10 in PROBAR_CFG for a finer trigger. What
+#      xdotool did goes to <salida>.tecla.log. Needs xdotool.
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 #      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT
 #      writes is copied next to <salida.log>. <segundos> is then an upper bound: the run ends as
@@ -89,7 +93,31 @@ flatpak run --filesystem="$WORK" --command=sh "$APP" -c \
   >"$WORK/stdout.log" 2>&1 &
 pid=$!
 t=0
+key_state=0
+key_name="${TECLA%@*}" key_at="${TECLA#*@}"
 while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
+  if [ -n "$TECLA" ] && [ "$key_state" -lt 2 ]; then
+    f=$(sed -n 's/^hash \([0-9]*\) .*/\1/p' "$GAME/ikaruga.log" 2>/dev/null | tail -1)
+    f=${f:-0}
+    if [ "$key_state" -eq 0 ] && [ "$f" -ge "$key_at" ]; then
+      for id in $(xdotool search --onlyvisible --name '.*' 2>>"$WORK/tecla.log"); do
+        echo "window $id '$(xdotool getwindowname "$id" 2>&1)'" >>"$WORK/tecla.log"
+      done
+      w=$(xdotool search --onlyvisible --class PPSSPP 2>>"$WORK/tecla.log" | head -1)
+      [ -n "$w" ] || w=$(xdotool search --onlyvisible --name PPSSPP 2>>"$WORK/tecla.log" | head -1)
+      [ -n "$w" ] || w=$(xdotool search --onlyvisible --name '.*' 2>>"$WORK/tecla.log" | tail -1)
+      # Xvfb has no window manager: focus follows the pointer, so move it onto the window too.
+      xdotool mousemove --window "$w" 100 100 >>"$WORK/tecla.log" 2>&1
+      xdotool windowfocus "$w" >>"$WORK/tecla.log" 2>&1
+      xdotool keydown "$key_name" >>"$WORK/tecla.log" 2>&1
+      echo "keydown $key_name at log frame $f window $w focus $(xdotool getwindowfocus 2>&1)" >>"$WORK/tecla.log"
+      key_state=1
+    elif [ "$key_state" -eq 1 ] && [ "$f" -ge $((key_at + 20)) ]; then
+      xdotool keyup "$key_name" >>"$WORK/tecla.log" 2>&1
+      echo "keyup $key_name at log frame $f" >>"$WORK/tecla.log"
+      key_state=2
+    fi
+  fi
   if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
   sleep 1; t=$((t + 1))
 done
@@ -101,7 +129,9 @@ wait "$pid" 2>/dev/null
 echo $? > "$WORK/ppsspp-rc"
 echo "$alive" > "$WORK/alive"
 SH
-export APP WORK LOG RAW GAME SEGUNDOS CAPTURA
+TECLA="${PROBAR_TECLA:-}"
+[[ -z "$TECLA" ]] || command -v xdotool >/dev/null || { echo "missing host tool: xdotool" >&2; exit 1; }
+export APP WORK LOG RAW GAME SEGUNDOS CAPTURA TECLA
 set +e
 # -d: Xvfb picks a free display itself; -a can give two parallel runs the same one, and the
 # first to end then kills the X server under the other.
@@ -111,6 +141,7 @@ set -e
 
 # Logs and files the EBOOT wrote are copied before any verdict, also when the run failed.
 [[ -f "$LOG" ]] && cp "$LOG" "${SALIDA%.log}.ppsspp.log"
+[[ -f "$WORK/tecla.log" ]] && cp "$WORK/tecla.log" "${SALIDA%.log}.tecla.log"
 [[ -f "$WORK/stdout.log" ]] && cp "$WORK/stdout.log" "${SALIDA%.log}.ppsspp-stdout.log"
 [[ -n "$CAPTURA" && -s "$RAW" ]] && cp "$RAW" "$CAPTURA"
 [[ -f "$GAME/ikaruga.log" ]] && cp "$GAME/ikaruga.log" "$SALIDA"
