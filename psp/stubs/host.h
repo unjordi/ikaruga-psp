@@ -9,6 +9,7 @@
 
 #include "dream/runtime/gdrom/disc.h"
 #include "dream/render/display_list.h"
+#include "dream/render/fog.h"
 #include "dream/runtime/maple/maple.h"
 
 namespace ikaruga::host {
@@ -22,6 +23,7 @@ struct VideoStats {
     std::uint32_t list_capacity = 0;
     std::uint32_t dropped = 0;  // strips not drawn because the display list was full
     std::uint32_t clip_inside = 0, clip_outside = 0;  // strips drawn under user clip mode 2 / 3
+    std::uint32_t fogged = 0;  // strips drawn with fog
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
@@ -33,7 +35,11 @@ void video_set_clip(bool enabled);
 // Called once per strip drawn while set (diagnostics); nullptr turns it off.
 void video_set_trace(void (*trace)(const char*, ...));
 // Draws one decoded render into the back buffer and shows it.
-VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref);
+// fog: the frame's fog registers (dream::render::describe_fog), or null for none.
+VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
+                            const dream::render::FogSettings* fog = nullptr);
+// Off: polygons are drawn without fog.
+void video_set_fog(bool enabled);
 // The buffer on screen as packed RGB888, top row first.
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 

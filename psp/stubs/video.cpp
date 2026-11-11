@@ -28,11 +28,13 @@
 #include <pspkernel.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
 #include "dream/render/display_list.h"
+#include "dream/render/fog.h"
 #include "dream/render/tsp.h"
 #include "host.h"
 #include "texture_psp.h"
@@ -47,7 +49,7 @@ constexpr float kScaleX = 480.0f / 640.0f, kScaleY = 272.0f / 480.0f;
 
 // One display list per render: a handful of commands per strip.
 alignas(64) std::uint32_t g_list[256 * 1024];
-constexpr int kStripListBytes = 256;
+constexpr int kStripListBytes = 512;
 
 // GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF: u, v, colour, then x, y, z. In through
 // mode u and v are in texels of the bound image.
@@ -64,6 +66,8 @@ void (*g_trace)(const char*, ...) = nullptr;
 bool g_enabled = true;
 bool g_depth = true;
 bool g_clip = true;
+bool g_fog = true;
+std::vector<GeVertex> g_fog_vertices;  // second pass of fogged strips
 std::uint32_t g_front = kColourBytes;  // eDRAM offset of the buffer on screen
 std::uint32_t g_back = 0;
 
@@ -100,6 +104,24 @@ std::uint32_t argb_to_abgr(std::uint32_t c, bool use_alpha) {
     return (a << 24) | ((c & 0xFFu) << 16) | (c & 0xFF00u) | ((c >> 16) & 0xFFu);
 }
 
+// Table fog factor for a 1/w, as the PC shader computes it (fog_factor in geometry.frag): index
+// from the exponent and mantissa of density * 1/w, interpolated within the entry.
+float fog_table_factor(const dream::render::FogSettings& fog, float inv_w) {
+    const float z = std::clamp(inv_w * fog.density, 1.0f, 255.9999f);
+    const float e = std::floor(std::log2(z));
+    const float m = z * 16.0f / std::exp2(e) - 16.0f;
+    const int i = std::clamp(static_cast<int>(std::floor(m) + e * 16.0f), 0, 127);
+    const float t = m - std::floor(m);
+    return (fog.factor[i] * (1.0f - t) + fog.delta[i] * t) / 255.0f;
+}
+
+std::uint32_t scale_rgb(std::uint32_t c, float k) {
+    const auto ch = [&](int sh) {
+        return static_cast<std::uint32_t>(std::clamp(((c >> sh) & 0xFFu) * k + 0.5f, 0.0f, 255.0f));
+    };
+    return (c & 0xFF000000u) | ch(0) | (ch(8) << 8) | (ch(16) << 16);
+}
+
 // The user tile clip of a polygon (mode 2 inside, 3 outside) as up to four GE scissor rectangles
 // at 480x272, each {x, y, w, h}. A pixel is inside when its centre is, so edges round to nearest.
 // Returns how many rectangles; -1 when the polygon is not clipped (full screen).
@@ -131,6 +153,7 @@ int clip_rects(const dream::render::Polygon& p, int rects[4][4]) {
 }  // namespace
 
 void video_set_clip(bool enabled) { g_clip = enabled; }
+void video_set_fog(bool enabled) { g_fog = enabled; }
 
 bool video_init() {
     sceGuInit();
@@ -161,7 +184,8 @@ void video_set_drawing(bool enabled) { g_enabled = enabled; }
 void video_set_depth_test(bool enabled) { g_depth = enabled; }
 void video_set_trace(void (*trace)(const char*, ...)) { g_trace = trace; }
 
-VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) {
+VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
+                            const dream::render::FogSettings* fog) {
     VideoStats stats;
     if (!g_ready)
         return stats;
@@ -179,6 +203,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
         bool blended, alpha_test;
         const GeTexture* tex;
         int tfx, tcc, filter, wrap_u, wrap_v;
+        // 0 no fog; 1 drawn scaled by (1 - f) and then f * fog colour added in a second pass
+        // (g_fog_vertices); 2 table-alpha fog, which replaces the colour with the fog colour.
+        int fog;
     };
     std::vector<Item> items;
     items.reserve(frame.polygon_count());
@@ -187,7 +214,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             float nearest = 0.0f;
             for (std::uint32_t i = 0; i < p.count; ++i)
                 nearest = std::max(nearest, frame.vertices[p.first + i].z);
-            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0});
+            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0, 0});
         }
     };
     add_list(dream::render::ListType::Opaque, false, false);
@@ -201,6 +228,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
     // Vertices converted once, per polygon, since the alpha a vertex carries and the scale of its
     // texture coordinates depend on its polygon's TSP word and texture.
     g_vertices.resize(frame.vertices.size());
+    g_fog_vertices.resize(frame.vertices.size());
     for (Item& item : items) {
         const auto& p = *item.poly;
         const std::uint32_t tsp = p.tsp;
@@ -233,6 +261,23 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             }
         }
         const bool use_alpha = dream::render::tsp_use_alpha(tsp) != 0 && !force_opaque_vertex;
+        // Fog (TSP bits 22-23): 0 table, 1 per vertex (offset alpha, only with an offset colour),
+        // 2 none, 3 table on alpha only. The GE has no fog in through mode, so the PC shader's
+        // mix(colour, fog, f) is split: this pass draws colour * (1 - f), the second adds f * fog.
+        const unsigned fog_control = dream::render::tsp_fog_control(tsp);
+        const bool offset = ((p.pcw >> 2) & 1u) != 0;
+        if (g_fog && fog && (fog_control == 0 || fog_control == 3 || (fog_control == 1 && offset))) {
+            item.fog = fog_control == 3 ? 2 : 1;
+            ++stats.fogged;
+            if (item.fog == 2)
+                item.tex = nullptr;  // colour and alpha both come from the fog
+            else if (item.tex && item.tfx == GU_TFX_REPLACE)
+                item.tfx = GU_TFX_MODULATE;  // decal times a grey (1 - f) vertex
+        }
+        const std::uint32_t fog_colour =
+            fog ? (fog_control == 1 ? fog->vertex_colour : fog->table_colour) : 0;
+        const bool replace_to_modulate = item.fog == 1 && item.tex &&
+            dream::render::tsp_shading_instruction(tsp) == 0;
         for (std::uint32_t i = 0; i < p.count; ++i) {
             const dream::render::Vertex& v = frame.vertices[p.first + i];
             GeVertex& o = g_vertices[p.first + i];
@@ -242,10 +287,27 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             o.x = v.x * kScaleX;
             o.y = v.y * kScaleY;
             o.z = std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, 65535.0f);
+            if (item.fog) {
+                const float f = std::clamp(fog_control == 1
+                    ? static_cast<float>(v.offset >> 24) / 255.0f
+                    : fog_table_factor(*fog, v.z), 0.0f, 1.0f);
+                GeVertex& q = g_fog_vertices[p.first + i];
+                q = o;
+                if (item.fog == 2) {
+                    o.colour = (fog_colour & 0x00FFFFFFu) |
+                        (static_cast<std::uint32_t>(f * 255.0f + 0.5f) << 24);
+                } else {
+                    const std::uint32_t base = replace_to_modulate ? (o.colour | 0x00FFFFFFu) : o.colour;
+                    o.colour = scale_rgb(base, 1.0f - f);
+                    q.colour = (o.colour & 0xFF000000u) | (scale_rgb(fog_colour, f) & 0x00FFFFFFu);
+                }
+            }
         }
     }
     sceKernelDcacheWritebackRange(g_vertices.data(),
                                   static_cast<unsigned>(g_vertices.size() * sizeof(GeVertex)));
+    sceKernelDcacheWritebackRange(g_fog_vertices.data(),
+                                  static_cast<unsigned>(g_fog_vertices.size() * sizeof(GeVertex)));
 
     sceGuStart(GU_DIRECT, g_list);
     sceGuDrawBufferList(GU_PSM_8888, reinterpret_cast<void*>(g_back), kStride);
@@ -311,23 +373,52 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
                 sceGuDisable(GU_ALPHA_TEST);
             int rects[4][4];
             const int nrects = g_clip ? clip_rects(p, rects) : -1;
-            if (nrects < 0) {
-                if (scissored) {
-                    sceGuScissor(0, 0, kWidth, kHeight);
-                    scissored = false;
-                }
-                sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count), nullptr,
-                               g_vertices.data() + p.first);
-            } else {
-                // Mode 2 draws once in its rectangle; mode 3 once per band around it. Nothing to
-                // draw when the rectangle (or its outside) is empty on screen.
+            if (nrects >= 0)
                 ++(p.tile_clip == 2 ? stats.clip_inside : stats.clip_outside);
+            // Mode 2 draws once in its rectangle; mode 3 once per band around it. Nothing to
+            // draw when the rectangle (or its outside) is empty on screen.
+            const auto draw = [&](const GeVertex* v) {
+                if (nrects < 0) {
+                    if (scissored) {
+                        sceGuScissor(0, 0, kWidth, kHeight);
+                        scissored = false;
+                    }
+                    sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count),
+                                   nullptr, v);
+                    return;
+                }
                 for (int r = 0; r < nrects; ++r) {
                     sceGuScissor(rects[r][0], rects[r][1], rects[r][2], rects[r][3]);
                     sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count),
-                                   nullptr, g_vertices.data() + p.first);
+                                   nullptr, v);
                 }
                 scissored = true;
+            };
+            draw(g_vertices.data() + p.first);
+            if (item.fog == 1) {
+                // Second pass: f * fog colour added where the first pass landed. GU_TFX_BLEND
+                // with the vertex and environment colours both f * fog gives that colour with the
+                // texel's alpha, so the texture still gates it (punch-through, translucency).
+                // Opaque strips add on equal depth; translucent ones repeat their own source factor
+                // (only alpha or one have a direct equivalent; others get no fog).
+                const unsigned src = dream::render::tsp_src_instr(p.tsp);
+                if (!item.blended || src == 1 || src == 4) {
+                    if (item.tex) {
+                        sceGuTexFunc(GU_TFX_BLEND, item.tfx == GU_TFX_DECAL ? GU_TCC_RGB : item.tcc);
+                        sceGuTexEnvColor(g_fog_vertices[p.first].colour & 0x00FFFFFFu);
+                    }
+                    sceGuEnable(GU_BLEND);
+                    if (item.blended && src == 4)
+                        sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFF);
+                    else
+                        sceGuBlendFunc(GU_ADD, GU_FIX, GU_FIX, 0xFFFFFF, 0xFFFFFF);
+                    if (!item.blended)
+                        sceGuDepthFunc(GU_EQUAL);
+                    sceGuDepthMask(GU_TRUE);
+                    draw(g_fog_vertices.data() + p.first);
+                    if (item.tex)
+                        sceGuTexFunc(item.tfx, item.tcc);
+                }
             }
             ++stats.drawn;
             if (g_trace) {

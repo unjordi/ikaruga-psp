@@ -112,6 +112,7 @@ void log_line(const char* fmt, ...) {
 //   texturas=0        draw textured polygons in their vertex colour only
 //   texturas_kb=N     cap of the texture cache in KB (default 2560)
 //   recorte=0         ignore the polygons' user tile clip (modes 2 and 3)
+//   niebla=0          draw without fog
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -126,6 +127,7 @@ struct Config {
     bool textures = true;
     std::uint32_t texture_kb = 2560;
     bool clip = true;
+    bool fog = true;
 };
 
 std::string trimmed(const std::string& s) {
@@ -186,6 +188,8 @@ Config read_config() {
             cfg.texture_kb = static_cast<std::uint32_t>(number());
         else if (key == "recorte")
             cfg.clip = value != "0";
+        else if (key == "niebla")
+            cfg.fog = value != "0";
     }
     if (cfg.hash_every == 0)
         cfg.hash_every = kLogEvery;
@@ -322,6 +326,7 @@ int main(int argc, char** argv) {
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
     host::video_set_clip(cfg.clip);
+    host::video_set_fog(cfg.fog);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
@@ -494,7 +499,9 @@ int main(int argc, char** argv) {
         const bool last = cfg.capture_at && sys.spg.frames() >= cfg.capture_at;
         if (last && cfg.trace)
             host::video_set_trace(&log_line);
-        const host::VideoStats st = host::video_draw_frame(frame, alpha_ref);
+        dream::render::FogSettings fog;
+        dream::render::describe_fog(pvr.reg_block(), fog);
+        const host::VideoStats st = host::video_draw_frame(frame, alpha_ref, &fog);
         host::video_set_trace(nullptr);
         draw_us += host::clock_us() - r0;
         ++renders;
@@ -509,9 +516,9 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
-            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " texture_renders %"
+            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " texture_renders %"
                 PRIu64 " last_texture_target 0x%06" PRIx32 " fb_w_ctrl 0x%08" PRIx32
-                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, texture_renders,
+                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, texture_renders,
                 texture_target, pvr.reg(0x048), pvr.reg(0x060));
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32
@@ -521,6 +528,24 @@ int main(int argc, char** argv) {
                 " demand_this_render %" PRIu32 " peak_demand %" PRIu32, st.textured, ts.entries, ts.bytes, ts.peak_bytes, ts.budget,
                 ts.decoded, ts.invalidated, ts.evicted, ts.failed, ts.over_budget,
                 ts.hash_us / 1000.0, ts.decode_us / 1000.0, ts.render_over_budget, ts.render_images, ts.render_demand, ts.peak_demand);
+            {
+                // Fog state of the captured render: registers and how many strips ask for each
+                // fog mode (TSP bits 22-23) or carry an offset colour (PCW bit 2).
+                unsigned modes[4] = {}, offset = 0;
+                for (const auto& list : frame.lists)
+                    for (const auto& p : list) {
+                        ++modes[(p.tsp >> 22) & 3u];
+                        offset += (p.pcw >> 2) & 1u;
+                    }
+                char table[16 * 5 + 1] = {};
+                for (int i = 0; i < 16; ++i)
+                    std::snprintf(table + i * 5, 6, "%04x ", pvr.reg(0x200 + i * 32) & 0xFFFFu);
+                log_line("fog: density 0x%04" PRIx32 " col_ram 0x%06" PRIx32 " col_vert 0x%06"
+                    PRIx32 " clamp %08" PRIx32 "-%08" PRIx32 " table/8 %s modes %u %u %u %u offset %u"
+                    " zmin %g zmax %g", pvr.reg(0x0B8) & 0xFFFFu, pvr.reg(0x0B0) & 0xFFFFFFu,
+                    pvr.reg(0x0B4) & 0xFFFFFFu, pvr.reg(0x0C0), pvr.reg(0x0BC), table, modes[0],
+                    modes[1], modes[2], modes[3], offset, frame.min_z, frame.max_z);
+            }
             log_perf(f);
             host::texcache_describe(&log_line);
             log_memory("memory");
