@@ -17,12 +17,17 @@
 #      VMU.BIN left after it (removed if there is none).
 #      PROBAR_GRABAR=DIR records the PPSSPP screen (ffmpeg x11grab, 480x272) to DIR/f%05d.png at
 #      PROBAR_GRABAR_FPS frames per second (default 1) for the whole run, plus DIR/t0 (start, s).
+#      PROBAR_SIN_LIMITE=1 lets PPSSPP run as fast as the host can (no 60 Hz frame limiter): the
+#      script holds PPSSPP's fast-forward key (Tab, VIRTKEY_FASTFORWARD) with xdotool in the
+#      virtual display. Emulated time is unchanged (host_s, captures, write_hash are the same); only
+#      wall time drops. Not for speed measurements (scripts/medir-velocidad.sh leaves it off).
+#      PROBAR_GRABAR forces it off: the recording samples wall time and must line up with Flycast's.
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 #      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT
 #      writes is copied next to <salida.log>. <segundos> is then an upper bound: the run ends as
 #      soon as the EBOOT quits.
 # Host needs: flatpak with org.ppsspp.PPSSPP, xvfb-run, genisoimage or mkisofs, ImageMagick (import)
-# for the screenshot.
+# for the screenshot, xdotool for PROBAR_SIN_LIMITE=1.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,6 +46,9 @@ APP=org.ppsspp.PPSSPP
 for tool in flatpak xvfb-run; do
   command -v "$tool" >/dev/null || { echo "missing host tool: $tool" >&2; exit 1; }
 done
+SIN_LIMITE="${PROBAR_SIN_LIMITE:-0}"
+[[ "$SIN_LIMITE" == 1 ]] && { command -v xdotool >/dev/null || {
+  echo "missing host tool: xdotool (PROBAR_SIN_LIMITE=1)" >&2; exit 1; }; }
 flatpak info "$APP" >/dev/null 2>&1 || {
   echo "missing $APP; install with: flatpak install --user flathub $APP" >&2; exit 1; }
 
@@ -99,7 +107,14 @@ if [ -n "$GRABAR" ]; then
 fi
 t=0
 while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
-  if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
+  # Fast-forward only acts while the key is down in EmuScreen (UI/EmuScreen.cpp), so the press is
+  # repeated each second: a press before the game screen exists is lost, a repeat is harmless.
+  if [ "$SIN_LIMITE" = 1 ]; then
+    xdotool mousemove 240 136 keydown Tab >/dev/null 2>&1 || true
+  fi
+  # The EBOOT's last lines: "stop: ...", "capture: ..." or "max_cuadros reached ..." (PPSSPP
+  # itself stays open at its menu after the EBOOT quits).
+  if grep -q '^stop: \|^capture: \|^max_cuadros reached' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
   sleep 1; t=$((t + 1))
 done
 alive=1
@@ -112,7 +127,8 @@ echo $? > "$WORK/ppsspp-rc"
 echo "$alive" > "$WORK/alive"
 SH
 GRABAR="${PROBAR_GRABAR:+$(realpath -m "$PROBAR_GRABAR")}" GRABAR_FPS="${PROBAR_GRABAR_FPS:-1}"
-export APP WORK LOG RAW GAME SEGUNDOS CAPTURA GRABAR GRABAR_FPS
+[ -n "$GRABAR" ] && SIN_LIMITE=0
+export APP WORK LOG RAW GAME SEGUNDOS CAPTURA GRABAR GRABAR_FPS SIN_LIMITE
 set +e
 # -d: Xvfb picks a free display itself; -a can give two parallel runs the same one, and the
 # first to end then kills the X server under the other.

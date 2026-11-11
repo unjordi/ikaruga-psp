@@ -38,7 +38,8 @@ correr() {  # correr <caso> <cuadro> <pulsar> <segundos> <vez>
   cfg="$dir/ikaruga.cfg" log="$dir/psp.log"
   { echo "capturar_en=$cuadro"; echo "pulsar=$pulsar"; echo "rtc_seed=1"; } > "$cfg"
   local t0; t0=$(date +%s)
-  PROBAR_CFG="$cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" "$seg" "$log" \
+  # Speed is measured with PPSSPP's 60 Hz limiter on, whatever the caller exported.
+  PROBAR_SIN_LIMITE=0 PROBAR_CFG="$cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" "$seg" "$log" \
     >/dev/null 2>&1 || true
   local wall=$(( $(date +%s) - t0 ))
   local fin vid tex

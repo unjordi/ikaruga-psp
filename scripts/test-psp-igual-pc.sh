@@ -37,8 +37,12 @@ echo "== PC: $HASTA frames, --rtc-seed $SEED"
 echo "== PSP: $SEGUNDOS s in PPSSPP, rtc_seed = $SEED"
 printf 'rtc_seed = %s\n' "$SEED" >"$OUT/ikaruga.cfg"
 [[ -n "$PULSAR" ]] && printf 'pulsar=%s\n' "$PULSAR" >>"$OUT/ikaruga.cfg"
+# The EBOOT stops one frame after the last hash compared, so the run lasts as long as the
+# emulation needs instead of the whole $SEGUNDOS (an upper bound now).
+printf 'max_cuadros=%s\n' "$((HASTA + 1))" >>"$OUT/ikaruga.cfg"
 [[ -n "${PROBAR_CFG_EXTRA:-}" ]] && grep -v '^rtc_seed' "$PROBAR_CFG_EXTRA" >>"$OUT/ikaruga.cfg"
-PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
+PROBAR_SIN_LIMITE="${PROBAR_SIN_LIMITE:-1}" PROBAR_CFG="$OUT/ikaruga.cfg" \
+  "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
   "$SEGUNDOS" "$OUT/psp.log" >/dev/null 2>"$OUT/probar.err" || true
 [[ -s "$OUT/psp.log" ]] || { echo "FAIL: the EBOOT wrote no log" >&2; exit 1; }
 

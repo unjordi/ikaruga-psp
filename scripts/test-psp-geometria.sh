@@ -26,12 +26,11 @@ EV="$REPO/build/psp/evidencia"
 mkdir -p "$EV"
 
 set +e
-"$CMP" "${args[@]}" "${extra[@]}" > "$EV/test-geometria-$cuadro.out" 2>&1 &
-p1=$!
-"$CMP" "${args[@]}" "${extra[@]}" --sin-dibujo > "$EV/test-geometria-$cuadro-sin-dibujo.out" 2>&1 &
-p2=$!
-wait $p1; rc_dibujo=$?
-wait $p2; rc_sin=$?
+# One PPSSPP at a time: the two runs are sequential (unthrottled, each is ~35 s of wall time).
+"$CMP" "${args[@]}" "${extra[@]}" > "$EV/test-geometria-$cuadro.out" 2>&1
+rc_dibujo=$?
+"$CMP" "${args[@]}" "${extra[@]}" --sin-dibujo > "$EV/test-geometria-$cuadro-sin-dibujo.out" 2>&1
+rc_sin=$?
 set -e
 
 fail=0
