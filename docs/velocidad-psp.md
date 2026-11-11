@@ -159,6 +159,67 @@ Para saber si A3 basta para la meta, se construyó un EBOOT de diagnóstico con 
   hice: la tarea prohíbe relajar `test-psp-igual-pc.sh` y cambiar la referencia del PC es decisión
   del dueño.
 
+### Fila 9b — FIPR/FTRV/FMAC en `float` en PC y en PSP (conservado)
+
+Decisión del dueño: las tres operaciones pasan a `float` **igual en PC y en PSP**; el `double`
+(y la FMA de FMAC) queda detrás de `-DDREAM_FPU_DOUBLE=1` para comparar. Ninguna de las dos es el
+SH-4; lo que se conserva es que PC y PSP corran el mismo código.
+
+- Parches: `patches/dream-recomp/0009-fpu-float.patch` (PSP, va tras 0006) y
+  `patches/dream-recomp-pc/0002-sh4-FMAC-FIPR-and-FTRV-in-float-unless-DREAM_FPU_DOU.patch` (PC).
+  El bloque `#if !DREAM_FPU_DOUBLE` de `ops.h` sale byte a byte igual en ambos árboles parchados
+  (CONFIRMADO con `cmp`). Orden: FMAC `p = fr0*frm; p + frn`; FIPR `((a0*b0 + a1*b1) + a2*b2) + a3*b3`;
+  FTRV igual por fila. Cada producto y suma redondeado a `float`.
+- Sin FMA implícita en los dos lados: `-ffp-contract=off -frounding-math` (PC: `cmake/DreamTargetDefaults.cmake`,
+  visto en `flags.make` de `dream_runtime` e `ikaruga_boot`; PSP: `CFLAGS` de `psp/ikaruga/Makefile`).
+  Desensamblado: el `ikaruga_boot` float tiene 1 `cvtss2sd` y 0 llamadas a `fmaf` (el double: 1 068 y
+  1 551); el ELF de PSP float tiene 0 `madd.s/msub.s` y 0 llamadas a `fmaf`.
+- VFPU: no se usó. No hay prueba de que dé bit a bit lo mismo que el `float` escalar de PC, así que va
+  FPU escalar.
+- El `gen/` no cambia (el parche solo toca `runtime/`): sha256 medido `924f8b67…` con el parche.
+
+| EBOOT | juego 2600 speed | host_s |
+|---|---|---|
+| `velocidad-nobios` (fila 9) | 0,0518 | 837,556 |
+| **float (parche 0009)** | **0,0869** (+68 %) | 499,355 |
+| float + vaciado de denormales por software (revertido) | 0,0834 | 520,436 |
+
+Una corrida del final (la de 2 corridas del intento con vaciado dio dos números idénticos). Meta
+0,085x: cumplida. Contadores al cuadro 2600: fipr/f 4 526, ftrv/f 5 927, fmac/f 10 893;
+draw_ms/render 11,37. El resto del tiempo es CPU del guest fuera de estas tres operaciones.
+
+**Igualdad PC↔PSP.** `test-psp-igual-pc.sh` acepta ahora `PULSAR=` (mismas pulsaciones en
+PC `--press` y en PSP `pulsar=`). Sin entrada el juego no llega a escribir resultados de
+FIPR/FTRV antes del cuadro 600: el PC float y el PC double dan el mismo `write_hash` en **todos**
+los cuadros 0…20 000 sin pulsaciones, así que la prueba sin entrada no distingue float de double.
+Con las pulsaciones de `medir-velocidad.sh` el PC float y el PC double difieren desde el cuadro 1480.
+
+| prueba | resultado |
+|---|---|
+| (a) EBOOT float vs PC float, sin entrada, 60…600 | PASA (10 cuadros) |
+| (a') igual, `PULSAR=<capítulo 1> HASTA=1980` | PASA 60…1980 (33 cuadros) |
+| (a'') igual, `HASTA=2400` | FALLA en 2040; con `hash_every=1` el primer cuadro distinto es **1983** |
+| (b) contraprueba: EBOOT float vs PC double, `PULSAR` `HASTA=1980` | FALLA en **1500** (PC `3558c903…`, PSP `125a570a…`; 24 iguales antes) |
+| (b') EBOOT float vs PC double sin entrada | PASA: sin entrada la contraprueba no discrimina |
+| control: EBOOT double (sin 0009) vs PC double, `PULSAR` `HASTA=2400` | FALLA también en 2040 |
+
+Resto de la aceptación con el EBOOT float final (`build/eboot-noftz`, md5 `f2bb011b…`) y el binario
+de PC float (`DREAM_RECOMP=build/dream-recomp`), 2026-11-10:
+
+| prueba | resultado |
+|---|---|
+| (c) `test-psp-titulo.sh … --todas` | PASA: (a) 28,43 dB en el cuadro 1243; (b) sin texturas 9,46 dB; (c) contra el cuadro 800 de PC 7,37 dB |
+| (e) las 8 de `--todas` | ok: arranque, redondeo, rtc, carpeta, vmu, salida-suspension, igual-pc, geometria (IoU 0,6055; su contraprueba sin dibujo da IoU 0 y falla como debe) |
+| (d) `medir-velocidad.sh --solo 2600` | 0,0869x (meta 0,085x) |
+
+La divergencia de 1983 **ya existía en double** (control). Es la escritura nº 164 579 168 en
+`0x8C00EFA0` (fr1 guardado por `njGetTranslation` 0x0C014740, llamado desde 0x0C06D576): PC `0`,
+PSP `0x057DE800`. Un PC compilado sin FTZ/DAZ (experimento, no conservado) iguala esa escritura y
+difiere más adelante (nº 164 579 590); vaciar denormales por software solo en FIPR/FTRV/FMAC no la
+cambió (mismo primer cuadro 1983) y costaba 4 %, por eso se revirtió. [INFER] el resto de la FPU
+(fadd/fmul generados) en PPSSPP no hace el vaciado de denormales de FCSR.FS como x86 con FTZ/DAZ.
+Queda abierto: es otra fila (correctitud), no la de float.
+
 ### 6. A6a — SPG con eventos solo en las líneas especiales (revertido por correctitud)
 
 Evento del scheduler solo en las líneas 0, VBlank in/out, vstart, vbend y la de HBlank (modo 0);
@@ -230,3 +291,56 @@ de ~2 MB para la copia RGBA temporal de la decodificación (hasta 2 MB para 512�
 - El parche de páginas sucias marca solo escrituras que pasan por `DcMemory::resolve`; si algún
   camino escribiera VRAM con `vram()` directo, la caché no se enteraría (no encontré ninguno en el
   runtime parchado).
+
+### Fila 9b ítem por ítem: qué cambia con `float` (EBOOT `build/eboot-noftz`)
+
+Evidencia: `build/ev-vel-noftz/juego-1/psp.log` (juego 2600), `build/ev-vel-titulo/titulo-1/psp.log`
+(título 1243), 2026-11-10/11. «No remedido» = EBOOT histórico de la fila 9, en `double`; su número
+sigue valiendo para él y no lo reconstruí.
+
+| ítem del doc | antes (fila 9, double) | con float | nota |
+|---|---|---|---|
+| Línea base juego 2600 (develop) | 0,0405 | no remedido | EBOOT histórico |
+| Línea base título 1243 (develop) | 0,1453 | no remedido | EBOOT histórico |
+| Título 1243 con el EBOOT final | sin medir (solo `dirty` 0,1458) | **0,1458**, host_s 142,375, draw 0,25 ms | cierra el «no medido» de la fila 9: el título casi no usa FTRV (3/f) |
+| Tramo título 300–1380 (host_s/60 cuadros) | 5,6–6,4 | 6,3–6,4; ftrv 3, fmac 4–154, fipr 0 | sin cambio: casi sin FPU vectorial |
+| Tramo juego 1500–1860 | 49–62; rechazos 20–37; draw 460–740 | **12,2–12,5**; ftrv 5 197, fmac ~7 500, fipr 2 334; rechazos 0; draw 6,7–7,7 | la caché (fila 9) quitó el dibujo; float baja el resto |
+| Tramo juego 2040–2600 | 29–54 | **14,0–23,5**; ftrv 5 830–14 942, fmac 10 893–26 153, fipr 4 526–20 419; draw 7,6–33 | lo que queda es CPU del guest fuera de las tres ops + dibujo |
+| throw por cuadro | 3–8 | 3–8 (≤ 39/s de host) | A13 sigue sin valer la pena |
+| scheduler por cuadro | ~1 525 | 1 525–1 598 | igual |
+| Cambio 2: develop / solo páginas sucias / páginas+espacio | 0,0405 / 0,0409 / 0,0517 | no remedido | el float va encima de los tres (conservado) |
+| Cambio 3: A3 entero (`exact2`) | 0,0516, revertido | no aplica | lo sustituye el float |
+| Cambio 4: `cache2` / `nobios` | 0,0517 / 0,0518, over_budget 10 907 / 0 | over_budget **0**, peak_demand 2 445 440, decode_ms 1 312,5, hash_ms 156,9 | la caché no cambia con float |
+| Cambio 5: A5 memo (`a5`) | 0,0528 (+1,9 %), revertido | no remedido | sigue revertido; sobre float sería otro % |
+| Diagnóstico `diagfloat` | 0,0902 (hash ≠ desde 1500) | float final 0,0869 | 4 % por debajo del diagnóstico: el `diagfloat` era otra variante (código no conservado), no lo reconstruí para comparar |
+| Cambio 6: A6a SPG | 0,0535, hash ≠ desde 240, revertido | no aplica | sigue revertido por correctitud |
+| A13 excepciones | no tocado | no tocado | ver fila throw |
+| Resultado (a) velocidad juego 2600 | 0,0518 | **0,0869** | meta de 9b 0,085x cumplida; la de la fila 9 (0,105x) sigue sin cumplirse |
+| Resultado (b) título `--todas` | 28,43 / 9,46 / 7,37 dB, 8 ok | 28,43 / 9,46 / 7,37 dB, 8 ok | idéntico |
+| Resultado (c) texturas-juego `--psnr-ref 10.35` | PASA, 10,35 dB | **no corrido** | no lo pidió 9b; pendiente |
+| RAM libre: develop / cache2 / final | in_use 35 897 432 / 35 897 688 / 34 389 208; bloque mayor 608 / 528 / 2 016 KB | final float: in_use 34 389 208, bloque mayor **2 000 KB**, kernel 764 KB | igual salvo 16 KB del bloque (medido por bloques decrecientes) |
+| «Qué NO verifiqué» de la fila 9: hardware real | no | no | sigue |
+| — velocidad del título con el EBOOT final | no medida | **medida: 0,1458** | cerrado |
+| — PSNR 2600 bajo (10,35 dB) | no revisado a ojo | no revisado | sigue |
+| — `DREAM_NO_BIOS_IMAGE` | supuesto | supuesto | sigue |
+| — costo de los contadores A9 | no medido | no medido | sigue |
+| — páginas sucias solo por `resolve` | no buscado más | no buscado más | sigue |
+
+### Qué NO verifiqué en la fila 9b y dónde está mi punto ciego
+
+- La igualdad PC↔PSP con `float` solo está probada **sin entrada (60…600) y con las pulsaciones del
+  capítulo 1 hasta el cuadro 1980**. Desde el 1983 difieren, y también en `double`: la prueba por
+  defecto (sin entrada) no ejercita FIPR/FTRV, así que es ciega a esta fila. No arreglé ni localicé
+  del todo la divergencia de 1983 (pista: denormales fuera de las tres operaciones).
+- La contraprueba (b) solo discrimina con `PULSAR`; sin entrada el EBOOT float pasa contra el PC
+  double.
+- `medir-velocidad` del EBOOT final: una sola corrida (las otras compilaciones daban corridas
+  idénticas entre sí, pero esta no la repetí). Otros agentes corrían PPSSPP en la misma máquina en
+  ratos; esperé a que no hubiera ninguno antes de lanzar cada prueba, pero no controlo la carga del
+  host fuera de PPSSPP.
+- VFPU no probada. Nada en hardware real: que el Allegrex real redondee como PPSSPP no lo sé.
+- No revisé que `float` deje la imagen del capítulo 1 "bien" frente a Flycast; solo IoU de geometría
+  contra el PC float.
+- `build-psp-ikaruga.sh` reutiliza `obj/gen` aunque cambie `ops.h`: un primer intento midió un EBOOT
+  sin el cambio. Rehíce con `obj/gen` borrado; no cambié el script (lo digo en primer-uso).
+
