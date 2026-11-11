@@ -43,9 +43,11 @@ rechazos() {  # over_budget (whole run) + rejected_this_render of the last "text
 }
 
 fallos=0
+# dibujar_desde=0: (a) counts over_budget over the whole run, so the cache must see every render
+# (comparar-titulo.sh would otherwise skip the video until 10 frames before the capture).
 set +e
 "$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES" --umbral 0 --salida "$A" \
-  "${reusar[@]}" > "$EV/test-texturas-juego-a.out" 2>&1
+  --cfg dibujar_desde=0 "${reusar[@]}" > "$EV/test-texturas-juego-a.out" 2>&1
 set -e
 ra="$(rechazos "$A")" pa="$(psnr "$A")"
 if [[ "$ra" == 0 ]]; then
@@ -69,7 +71,7 @@ if [[ $contra -eq 1 ]]; then
   cp -f "$A"/pc-*.ppm "$C"/ 2>/dev/null || true
   set +e
   "$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES" --umbral 0 --salida "$C" \
-    --cfg "texturas_kb=$viejo" --reusar > "$EV/test-texturas-juego-c.out" 2>&1
+    --cfg dibujar_desde=0 --cfg "texturas_kb=$viejo" --reusar > "$EV/test-texturas-juego-c.out" 2>&1
   set -e
   rc="$(rechazos "$C")" pc="$(psnr "$C")"
   if [[ -n "$rc" && "$rc" -gt 0 ]]; then

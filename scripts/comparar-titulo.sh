@@ -18,7 +18,8 @@
 # boot screen. Default N: 1243, the first frame of the title that is identical to the settled
 # title on PC (frames 1210-1242 fade in).
 # Default DIR: build/psp/evidencia/titulo-N[-pc-M][-sin-texturas]. --reusar keeps captures in DIR.
-# Env: PROBAR_DISCO as in scripts/probar-ikaruga-ppsspp.sh. Host needs: what comparar-geometria.sh
+# Env: PROBAR_DISCO as in scripts/probar-ikaruga-ppsspp.sh; PROBAR_SIN_LIMITE defaults to 1 here
+# (PPSSPP unthrottled, docs/pruebas-rapidas.md), PROBAR_SIN_LIMITE=0 runs at 60 Hz. Host needs: what comparar-geometria.sh
 # needs.
 set -euo pipefail
 
@@ -62,11 +63,15 @@ if [[ $reusar -eq 0 || ! -s "$PSP_RAW" ]]; then
     echo "capturar_en=$cuadro"
     echo "pulsar=$PRESSES"
     echo "rtc_seed=1"
+    # Video off until 10 frames before the capture (docs/pruebas-rapidas.md); a later
+    # dibujar_desde=0 line (--cfg) draws every frame again.
+    (( cuadro > 10 )) && echo "dibujar_desde=$(( cuadro - 10 ))"
     [[ $sin_texturas -eq 1 ]] && echo "texturas=0"
     for l in "${extra_cfg[@]}"; do echo "$l"; done
   } > "$OUT/ikaruga.cfg"
   start=$(date +%s)
-  PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
+  PROBAR_SIN_LIMITE="${PROBAR_SIN_LIMITE:-1}" PROBAR_CFG="$OUT/ikaruga.cfg" \
+    "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
     "$segundos" "$PSP_LOG" > "$OUT/probar.out"
   echo "psp: PPSSPP wall time $(( $(date +%s) - start )) s" | tee "$OUT/psp-tiempo.txt"
 fi

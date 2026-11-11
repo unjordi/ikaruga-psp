@@ -63,10 +63,14 @@ if [[ $reusar -eq 0 || ! -s "$PSP_RAW" ]]; then
     echo "capturar_en=$cuadro"
     echo "pulsar=$PRESSES"
     echo "rtc_seed=1"
+    # Video off until 10 frames before the capture (docs/pruebas-rapidas.md); a later
+    # dibujar_desde=0 line (--cfg) draws every frame again.
+    (( cuadro > 10 )) && echo "dibujar_desde=$(( cuadro - 10 ))"
     [[ $sin_dibujo -eq 1 ]] && echo "dibujar=0"
   } > "$OUT/ikaruga.cfg"
   start=$(date +%s)
-  PROBAR_CFG="$OUT/ikaruga.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
+  PROBAR_SIN_LIMITE="${PROBAR_SIN_LIMITE:-1}" PROBAR_CFG="$OUT/ikaruga.cfg" \
+    "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
     "$segundos" "$PSP_LOG" >/dev/null
   echo "psp: PPSSPP wall time $(( $(date +%s) - start )) s" | tee "$OUT/psp-tiempo.txt"
 fi
