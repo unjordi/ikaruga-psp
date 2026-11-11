@@ -135,6 +135,28 @@ Comprobación igual que en 5.1. Esperado con el parche:
 `ls $G | sort | while read f; do cat "$G/$f"; done | sha256sum`). Sin el parche sigue siendo el de
 5.1.
 
+### 5.3 FIPR/FTRV/FMAC en `float` (`patches/dream-recomp-pc/0002-…`)
+
+`git apply patches/dream-recomp-pc/*.patch` aplica también `0002`: FMAC, FIPR y FTRV en `float`
+simple, el mismo código que la PSP (`patches/dream-recomp/0009-fpu-float.patch`; docs/velocidad-psp.md,
+«Fila 9b»). Solo toca `runtime/include/dream/runtime/sh4/ops.h`, así que **el `gen/` no cambia**:
+CONFIRMADO, con 0001+0002 aplicados sobre `51ca276` en `build/dream-recomp` el hash de 5.2 sale
+`924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da`. El binario sí cambia:
+`ikaruga_boot` de 14 402 032 B (float).
+
+Para comparar contra la evaluación de antes (FMA en FMAC, acumulación en `double`), un segundo
+build del mismo árbol:
+
+```sh
+cmake -S . -B build-dbl -DDREAM_DEV_INTERPRETER=OFF -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_FLAGS=-DDREAM_FPU_DOUBLE=1
+cmake --build build-dbl --target ikaruga_boot --parallel "$(nproc)"   # 14 430 776 B
+```
+
+CONFIRMADO: el `build-dbl` da el mismo `write_hash` que `~/code/ajenos/dr-idle` (cuadros 0…3000,
+sin entrada). Los dos lados compilan con `-ffp-contract=off -frounding-math`
+(`cmake/DreamTargetDefaults.cmake`): sin FMA implícita.
+
 `scripts/build-psp-ikaruga.sh` no necesita este paso para el runtime: aplica su propia copia de la
 parte del runtime (`patches/dream-recomp/0004-idle-skip-runtime.patch`). Sí necesita el `gen/`
 regenerado: el C++ con `idle_poll` no enlaza contra un runtime sin 0004, y el `gen/` sin `idle_poll`
