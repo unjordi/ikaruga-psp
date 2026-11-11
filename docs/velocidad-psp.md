@@ -159,6 +159,58 @@ Para saber si A3 basta para la meta, se construyó un EBOOT de diagnóstico con 
   hice: la tarea prohíbe relajar `test-psp-igual-pc.sh` y cambiar la referencia del PC es decisión
   del dueño.
 
+### Fila 9b — FIPR/FTRV/FMAC en `float` en PC y en PSP (conservado)
+
+Decisión del dueño: las tres operaciones pasan a `float` **igual en PC y en PSP**; el `double`
+(y la FMA de FMAC) queda detrás de `-DDREAM_FPU_DOUBLE=1` para comparar. Ninguna de las dos es el
+SH-4; lo que se conserva es que PC y PSP corran el mismo código.
+
+- Parches: `patches/dream-recomp/0009-fpu-float.patch` (PSP, va tras 0006) y
+  `patches/dream-recomp-pc/0002-sh4-FMAC-FIPR-and-FTRV-in-float-unless-DREAM_FPU_DOU.patch` (PC).
+  El bloque `#if !DREAM_FPU_DOUBLE` de `ops.h` sale byte a byte igual en ambos árboles parchados
+  (CONFIRMADO con `cmp`). Orden: FMAC `p = fr0*frm; p + frn`; FIPR `((a0*b0 + a1*b1) + a2*b2) + a3*b3`;
+  FTRV igual por fila. Cada producto y suma redondeado a `float`.
+- Sin FMA implícita en los dos lados: `-ffp-contract=off -frounding-math` (PC: `cmake/DreamTargetDefaults.cmake`,
+  visto en `flags.make` de `dream_runtime` e `ikaruga_boot`; PSP: `CFLAGS` de `psp/ikaruga/Makefile`).
+  Desensamblado: el `ikaruga_boot` float tiene 1 `cvtss2sd` y 0 llamadas a `fmaf` (el double: 1 068 y
+  1 551); el ELF de PSP float tiene 0 `madd.s/msub.s` y 0 llamadas a `fmaf`.
+- VFPU: no se usó. No hay prueba de que dé bit a bit lo mismo que el `float` escalar de PC, así que va
+  FPU escalar.
+- El `gen/` no cambia (el parche solo toca `runtime/`): sha256 medido `924f8b67…` con el parche.
+
+| EBOOT | juego 2600 speed | host_s |
+|---|---|---|
+| `velocidad-nobios` (fila 9) | 0,0518 | 837,556 |
+| **float (parche 0009)** | **0,0869** (+68 %) | 499,355 |
+| float + vaciado de denormales por software (revertido) | 0,0834 | 520,436 |
+
+Una corrida del final (la de 2 corridas del intento con vaciado dio dos números idénticos). Meta
+0,085x: cumplida. Contadores al cuadro 2600: fipr/f 4 526, ftrv/f 5 927, fmac/f 10 893;
+draw_ms/render 11,37. El resto del tiempo es CPU del guest fuera de estas tres operaciones.
+
+**Igualdad PC↔PSP.** `test-psp-igual-pc.sh` acepta ahora `PULSAR=` (mismas pulsaciones en
+PC `--press` y en PSP `pulsar=`). Sin entrada el juego no llega a escribir resultados de
+FIPR/FTRV antes del cuadro 600: el PC float y el PC double dan el mismo `write_hash` en **todos**
+los cuadros 0…20 000 sin pulsaciones, así que la prueba sin entrada no distingue float de double.
+Con las pulsaciones de `medir-velocidad.sh` el PC float y el PC double difieren desde el cuadro 1480.
+
+| prueba | resultado |
+|---|---|
+| (a) EBOOT float vs PC float, sin entrada, 60…600 | PASA (10 cuadros) |
+| (a') igual, `PULSAR=<capítulo 1> HASTA=1980` | PASA 60…1980 (33 cuadros) |
+| (a'') igual, `HASTA=2400` | FALLA en 2040; con `hash_every=1` el primer cuadro distinto es **1983** |
+| (b) contraprueba: EBOOT float vs PC double, `PULSAR` `HASTA=1980` | FALLA en **1500** (PC `3558c903…`, PSP `125a570a…`; 24 iguales antes) |
+| (b') EBOOT float vs PC double sin entrada | PASA: sin entrada la contraprueba no discrimina |
+| control: EBOOT double (sin 0009) vs PC double, `PULSAR` `HASTA=2400` | FALLA también en 2040 |
+
+La divergencia de 1983 **ya existía en double** (control). Es la escritura nº 164 579 168 en
+`0x8C00EFA0` (fr1 guardado por `njGetTranslation` 0x0C014740, llamado desde 0x0C06D576): PC `0`,
+PSP `0x057DE800`. Un PC compilado sin FTZ/DAZ (experimento, no conservado) iguala esa escritura y
+difiere más adelante (nº 164 579 590); vaciar denormales por software solo en FIPR/FTRV/FMAC no la
+cambió (mismo primer cuadro 1983) y costaba 4 %, por eso se revirtió. [INFER] el resto de la FPU
+(fadd/fmul generados) en PPSSPP no hace el vaciado de denormales de FCSR.FS como x86 con FTZ/DAZ.
+Queda abierto: es otra fila (correctitud), no la de float.
+
 ### 6. A6a — SPG con eventos solo en las líneas especiales (revertido por correctitud)
 
 Evento del scheduler solo en las líneas 0, VBlank in/out, vstart, vbend y la de HBlank (modo 0);
