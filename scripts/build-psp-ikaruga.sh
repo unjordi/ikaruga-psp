@@ -11,6 +11,9 @@
 # one); --limpio drops previous objects first.
 # OPT_RT / OPT_GEN in the environment override the flags of the mix variant.
 # Env: DREAM_RECOMP=<dream-recomp checkout> instead of third_party/dream-recomp.
+#      DREAM_FPU_DOUBLE=1: FIPR/FTRV/FMAC in double (patch 0009), only to compare bit for bit
+#      with the double PC launcher; generated objects are rebuilt when it changes. It turns on
+#      DREAM_SOFT_DAZ (patch 0010) too; DREAM_SOFT_DAZ=0 leaves it off (counter-test).
 # <dir-gen> is read-only mounted and never copied into the repository.
 set -euo pipefail
 
@@ -20,7 +23,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${IKARUGA_PSP_IMAGE:-ikaruga-psp-toolchain:v20261001}"
 DR="${DREAM_RECOMP:-$REPO/third_party/dream-recomp}"
 OUT="$REPO/build/psp/ikaruga"
-USAGE_LINES='2,12p'
+USAGE_LINES='2,16p'
+FPU_DOUBLE="${DREAM_FPU_DOUBLE:-0}" SOFT_DAZ="${DREAM_SOFT_DAZ:-${DREAM_FPU_DOUBLE:-0}}"
 
 gen="" limpio=0 variants=(mix Os)
 for arg in "$@"; do
@@ -75,17 +79,20 @@ for v in "${variants[@]}"; do
   # The patched sources are rebuilt from scratch every run: drop runtime objects so they follow.
   rm -rf "$dir/obj/rt" "$dir/obj/host" "$dir/EBOOT.PBP" "$dir/PARAM.SFO"
   # make does not track flags: generated objects are reused only if built with the same OPT_GEN.
-  if [[ "$(cat "$dir/opt_gen.txt" 2>/dev/null || true)" != "$opt_gen" ]]; then
+  # The generated units inline ops.h, so the FPU mode is part of their key too.
+  # make sees no header dependencies either: a patch to an inlined runtime header changes the key.
+  key="$opt_gen fpu_double=$FPU_DOUBLE soft_daz=$SOFT_DAZ patches=$(cat "$REPO"/patches/dream-recomp/*.patch | md5sum | cut -c1-12)"
+  if [[ "$(cat "$dir/opt_gen.txt" 2>/dev/null || true)" != "$key" ]]; then
     rm -rf "$dir/obj/gen" "$dir/ikaruga.elf"
   fi
-  echo "$opt_gen" > "$dir/opt_gen.txt"
+  echo "$key" > "$dir/opt_gen.txt"
   targets=(ikaruga.elf)
   [[ $v != O2 ]] && targets+=(EBOOT.PBP)
   docker run --rm --user "$(id -u):$(id -g)" \
     --volume "$REPO:/repo:ro" --volume "$OUT/src:/rt:ro" --volume "$gen:/gen:ro" \
     --volume "$dir:/work" --workdir /work "$IMAGE" \
     make -j"$jobs" -f /repo/psp/ikaruga/Makefile RT=/rt GEN=/gen \
-      OPT_RT="$opt_rt" OPT_GEN="$opt_gen" "${targets[@]}"
+      OPT_RT="$opt_rt" OPT_GEN="$opt_gen" DREAM_FPU_DOUBLE="$FPU_DOUBLE" DREAM_SOFT_DAZ="$SOFT_DAZ" "${targets[@]}"
   test -s "$dir/ikaruga.elf" || { echo "$dir/ikaruga.elf was not produced" >&2; exit 1; }
   [[ $v == O2 ]] || test -s "$dir/EBOOT.PBP" || { echo "$dir/EBOOT.PBP was not produced" >&2; exit 1; }
 done

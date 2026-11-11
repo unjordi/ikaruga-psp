@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "dream/runtime/perf.h"
+#include "dream/runtime/fenv.h"
 #include "dream/render/background.h"
 #include "dream/render/display_list.h"
 #include "dream/runtime/aica/aica.h"
@@ -275,6 +276,26 @@ void start_write_log(dream::System& sys, std::uint64_t from, std::uint64_t count
     };
 }
 
+// One boot line on how this FPU treats denormals with FCSR.FS set, as the runtime sets it for
+// the guest's FPSCR.DN (x86 with FTZ/DAZ gives 0 for all of them).
+void log_fpu_probe() {
+    dream::fenv::apply(dream::fenv::Mode{dream::fenv::Rounding::TowardZero, true});
+    volatile float denormal = 1e-39f, big = 1e10f, tiny = 1e-20f;
+    const float daz = denormal * big;   // denormal input
+    const float ftz = tiny * tiny;      // denormal result
+    volatile double dd = static_cast<double>(denormal) * 1e10;  // soft-double path
+    const float dz = static_cast<float>(static_cast<double>(tiny) * tiny);
+    const bool fs = dream::fenv::current().flush_denormals;
+    dream::fenv::reset_host();
+    std::uint32_t a, b, d;
+    std::memcpy(&a, &daz, 4);
+    std::memcpy(&b, &ftz, 4);
+    std::memcpy(&d, &dz, 4);
+    log_line("fpu: fs %d denormal*1e10 %08lx tiny*tiny %08lx soft-double in %g out %08lx",
+        fs ? 1 : 0, static_cast<unsigned long>(a), static_cast<unsigned long>(b),
+        static_cast<double>(dd), static_cast<unsigned long>(d));
+}
+
 struct ExitRequested {};
 
 // Debug keys of ikaruga.cfg: test_exit_at = frame notifies the exit callback (as HOME -> Exit);
@@ -322,6 +343,7 @@ int main(int argc, char** argv) {
     host::video_init();
     host::audio_init(44100);
     log_line("ikaruga-psp: log every %" PRIu64 " guest frames", kLogEvery);
+    log_fpu_probe();
     const Config cfg = read_config();
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);

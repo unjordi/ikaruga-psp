@@ -82,6 +82,129 @@ La evidencia quedó fuera del repo
 `build/psp/evidencia/` del worktree: `final/` (corrida final de todo), `*-antes.txt`,
 `*-despues.txt`, `igual-pc/`, `vmu/`, `salida-suspension/`.
 
+## Fila 8b — divergencia de 1983 con FPU `double` (denormales y NaN, no la entrada)
+
+Pregunta: con FIPR/FTRV/FMAC en `double` en los dos lados y las pulsaciones del capítulo 1, ¿por qué
+PC y PSP escriben distinto desde el cuadro ~1983? Respuesta: **no es la entrada**. Son dos
+diferencias de la FPU de la PSP frente a x86 que el build `double` deja ver, y con `double` sí son
+errores del port (la igualdad debe ser total).
+
+**Entrada descartada (código).** PC (`dr-idle/runtime/boot/boot_main.cpp`, `on_vblank_out`) y PSP
+(`psp/stubs/input.cpp` `input_poll`, llamado desde `on_vblank_out` en `psp/ikaruga/main.cpp`) hacen lo
+mismo: en cada VBlank-out, con `f = spg.frames()`, el botón está activo (bajo) si `start <= f < start + 8`,
+y después `maple.vblank()`. Mismo cuadro, misma duración, misma encuesta. Además, la divergencia
+es una escritura de punto flotante, no del estado del mando, y el hash es igual hasta el cuadro 1982
+(con seis pulsaciones ya entregadas, de 700 a 1800).
+
+### Reproducción (paso 1)
+
+EBOOT `DREAM_FPU_DOUBLE=1` sin arreglo contra `ikaruga_boot` de `dr-idle` (double), `PULSAR=` del capítulo 1,
+`hash_every=1`:
+
+| | valor |
+|---|---|
+| último cuadro igual | 1982 (`2e5edbc3b15b7716`, 164 185 556 escrituras en los dos) |
+| primer cuadro distinto | **1983** (PC `f8bafff30a62678c`, PSP `11611aa3021f578c`; mismo nº de escrituras, 164 608 083) |
+| primera escritura distinta | nº **164 579 168**, `0x8C00EFA0`, 4 bytes: PC `0x00000000`, PSP `0x057DE800`; PC del guest `0x0C06D576` (el `jsr` a `njGetTranslation` 0x0C014740, que guarda fr0..fr2 con `fmov fr,@-r5`), PR `0x0C06D57A` |
+
+Comandos: PC `ikaruga_boot … --press <capítulo 1> --write-log w.log --write-log-range 164185556:422527`;
+PSP `ikaruga.cfg` con `log_from=164185556`, `log_count=422527` y `PROBAR_SACAR=writes.log`; `diff` de
+los dos logs.
+
+`0x057DE800` es un float normal pequeño (≈1,2e-35); en PC sale 0. Las escrituras desde 0x0C06D576 son
+`fmov` (copia de bits): el valor ya venía distinto en el registro y lo produjo aritmética anterior.
+
+### Causa 1: la PSP no hace DAZ (denormales en la *entrada*)
+
+El runtime traduce FPSCR.DN=1 del guest (Katana arranca con 0x00040001) a FTZ+DAZ de MXCSR en x86
+(`runtime/src/fenv.cpp`) y a FCSR.FS en la PSP (parche 0001). Línea de sonda en el arranque del
+EBOOT (`log_fpu_probe`, `main.cpp`), en PPSSPP:
+
+```
+fpu: fs 1 denormal*1e10 0f4ad2fa tiny*tiny 00000000 soft-double in 1e-29 out 00000000
+```
+
+Con FS=1 un **resultado** denormal sí se vacía (`tiny*tiny = 0`), pero una **entrada** denormal se usa
+tal cual: `1e-39 * 1e10 = 0x0F4AD2FA` (≈1e-29), donde x86 con DAZ da 0. El juego carga denormales de
+memoria a registros (`fmov @r,frn`, copia de bits) y luego opera con ellos: en PC valen 0 y en la PSP
+no. Además, el `double` de FIPR/FTRV y `fmaf` van por software en la PSP (libgcc) y no miran FCSR.FS:
+su conversión final a `float` deja pasar un denormal que x86 (`cvtsd2ss` con FTZ) vacía.
+
+Por eso el intento de la fila 9b (vaciar solo en FIPR/FTRV/FMAC) no cambiaba nada: la entrada denormal
+entra por los `fadd`/`fmul`/`fcmp` generados, no solo por esas tres operaciones.
+[INFER] Lo medí en PPSSPP; que la Allegrex real se comporte igual no lo verifiqué.
+
+### Causa 2: el NaN del `double` por software
+
+Arreglada la causa 1, la siguiente divergencia apareció en el cuadro **2277** (último igual: 2276):
+escritura nº **275 724 434** en `0x8CAF6618`, PC `0xFFFFFFFF`, PSP `0x7FFFFFFF`, PC del guest `0x0C068F86`
+(`jsr` a `njPushMatrixEx` 0x0C01429C, que guarda la matriz con `fmov`). Las dos son NaN y difieren en el
+signo. [INFER] sale de un FTRV en `double` con un NaN en la matriz o en el vector: x86 propaga el primer
+operando NaN (silenciado) o el NaN por defecto `0xFFC00000`, mientras que el `double` por software de
+libgcc da otro signo. No aislé la instrucción exacta; el arreglo de abajo la iguala, y eso es la evidencia.
+
+### Arreglo (parche `patches/dream-recomp/0010-soft-daz.patch`)
+
+Actúa solo con `-DDREAM_SOFT_DAZ=1`, que `psp/ikaruga/Makefile` y `scripts/build-psp-ikaruga.sh` encienden por
+defecto cuando `DREAM_FPU_DOUBLE=1` (`DREAM_SOFT_DAZ=0` lo apaga para la contraprueba). El build `float`
+que se entrega no cambia: ahí queda apagado, porque en `float` una divergencia por FPU no es un bug.
+
+- `ctx.h`: `fr[]`/`xf[]` pasan a `Freg`, un `float` envuelto. Al leerse como `float` para operar, un
+  denormal vale ±0 (DAZ); `=`, `fmov` y `f2u` guardan los bits crudos (x86 tampoco toca los bits en una copia).
+- `ops.h`, rama `double`: FIPR, FTRV y FMAC vacían un resultado `float` denormal (FTZ) y, si el
+  resultado es NaN, lo recalculan con la regla de x86 (`x86fp::dot4`, `x86fp::fma`).
+- `build-psp-ikaruga.sh`: los objetos generados se recompilan cuando cambian `DREAM_FPU_DOUBLE`,
+  `DREAM_SOFT_DAZ` o algún parche. Esos objetos incluyen `ops.h` en línea y make no rastrea las cabeceras;
+  sin esto, el primer intento salió con el mismo md5 que el anterior.
+- `main.cpp`: la línea `fpu:` de la sonda, en todos los builds.
+
+### Aceptación (paso 3) — queda en el repo
+
+```
+G=/home/unjordi/code/ajenos/dr-idle/build-rel/games/ikaruga/gen
+J=/home/unjordi/code/ajenos/dr-idle/games/ikaruga/extracted
+export PROBAR_DISCO=…/DISCO-real.ISO DREAM_RECOMP=/home/unjordi/code/ajenos/dr-idle
+DREAM_FPU_DOUBLE=1 scripts/build-psp-ikaruga.sh $G --variantes=mix                    # arreglo
+scripts/test-psp-igual-pc-double.sh build/psp/ikaruga/EBOOT.PBP $J
+DREAM_FPU_DOUBLE=1 DREAM_SOFT_DAZ=0 scripts/build-psp-ikaruga.sh $G --variantes=mix   # revertido
+scripts/test-psp-igual-pc-double.sh --contraprueba build/psp/ikaruga/EBOOT.PBP $J
+```
+
+`test-psp-igual-pc-double.sh` corre `test-psp-igual-pc.sh` con el `PULSAR=` del capítulo 1, `HASTA=2600`
+y `hash_every=1`, y además compara **todos** los cuadros que registraron los dos lados. La PSP necesita
+unos 1 500 s de PPSSPP para llegar al cuadro 2600.
+
+| prueba (2026-11-11) | EBOOT md5 | resultado |
+|---|---|---|
+| sin arreglo (paso 1) | `0d778aaa…` | primer cuadro distinto 1983 |
+| solo DAZ/FTZ (sin la regla de NaN) | `da2d7b9e…` | iguales 1…2276, distinto en **2277** |
+| **arreglo completo** | `f760c959…` | **PASA**: los 43 cuadros 60…2600 iguales |
+| contraprueba `DREAM_SOFT_DAZ=0` | `6c4221aa…` | FALLA como debe: primer cuadro distinto **1983** (`test-psp-igual-pc.sh` cada 60 falla en 2040); la contraprueba del script pasa |
+
+Arranque rápido con el build `float` que se entrega (`DREAM_SOFT_DAZ` apagado, md5 `4b2d8f8b…`, con la
+línea `fpu:` nueva): `HASTA=240 test-psp-igual-pc.sh` → iguales los 4 cuadros 60…240.
+
+Evidencia (fuera del repo, en `build/f8b/`): `pcl/w.log` y `pspl/writes.log` (ventana 164 185 556 + 422 527),
+`pcl2/` y `pspl2/` (ventana 275 455 580 + 299 836), `r3/` (aceptación) y `contra/`.
+
+### Qué NO verifiqué en la fila 8b y dónde está mi punto ciego
+
+- **Solo PPSSPP.** La sonda `fpu:` (sin DAZ en las entradas, con FTZ en los resultados) es lo que hace PPSSPP;
+  no la corrí en una PSP real. Si la Allegrex real sí hiciera DAZ, el parche sobraría ahí, pero no estorbaría.
+- **Causa 2 inferida.** No aislé qué instrucción produjo el NaN de signo distinto; supongo que fue FTRV o FIPR
+  en `double`, porque solo ahí puse la regla de NaN de x86 y con eso la escritura se iguala. Los `fadd`/`fmul`
+  generados en `float` usan la FPU de hardware de la PSP, y su NaN no lo comparé con el de x86.
+- **Alcance.** Igualdad total probada solo con las pulsaciones del capítulo 1 hasta el cuadro 2600 (todos los
+  cuadros). Más allá, o con otra entrada, puede aparecer otra diferencia de FPU.
+- **Costo.** No medí cuánto frena `Freg` el build `double`; solo sirve para depurar. El build `float` compila
+  `Freg = float` (sin cambio de código), pero su EBOOT cambia de md5 por la sonda de `main.cpp`. Su velocidad
+  la volví a medir (juego 2600 0,0869x, título 1243 0,1458x; tabla de la fila 8b en
+  docs/velocidad-psp.md, una corrida cada uno); `--todas` no lo corrí: le toca al orquestador.
+- `devinterp/interpreter.cpp` toma `float&` de `c.fr[n]`: con `DREAM_SOFT_DAZ=1` no compilaría. En la PSP no
+  se compila, y el lado de PC no lleva este parche.
+- La entrada la descarté leyendo el código de los dos lados y viendo que la primera diferencia es de punto
+  flotante. No registré el estado del mando cuadro por cuadro en los dos lados.
+
 ## Qué NO verifiqué y dónde está mi punto ciego
 
 - **Nada en hardware.** Que el Allegrex real respete FCSR.RM (y FS) solo lo dice PPSSPP.
