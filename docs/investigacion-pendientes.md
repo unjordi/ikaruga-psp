@@ -480,3 +480,39 @@ volcado). La tabla de §3 de `pruebas-rapidas.md` ya lo lista.
   `psp/ikaruga/main.cpp`.
 - 23c. Serializar cada dispositivo (PVR/TA, AICA/ARM7, Maple, BIOS HLE). Cierra con `write_hash`
   idéntico en los 60 cuadros siguientes (build `double`).
+
+## 50. Modo vertical (TATE) en el PC recompilado
+
+**Pregunta.** ¿Cómo dibuja el juego el modo vertical: rota y llena 640×480, o dibuja una columna?
+
+**Cómo lo medí.** Con pulsaciones: en el menú del título (`GAME START, PRACTICE, RANKING, CONFIG…`)
+bajar 3 veces a CONFIG y entrar; la primera opción es `MONITOR TYPE` (valor inicial `HORIZONTAL 1`).
+Cada `right` avanza `HORIZONTAL 1 → HORIZONTAL 2 → VERTICAL 1 → VERTICAL 2`. Con `VERTICAL 1`, salir
+y empezar partida:
+
+```
+P=start@700,start@1000,start@1200,down@1400,down@1420,down@1440,a@1460,right@1630,right@1660,\
+b@1720,up@1780,up@1800,up@1820,a@1860,start@2000,a@2200,start@2400,a@2600,start@2800,a@3000
+XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-1 $B --config $T --rtc-seed 1 --press "$P" \
+  --window --unthrottled --present-mode immediate --no-audio --screenshot-at S --max-frames S+8
+# S = 1900, 3400, 4000
+```
+
+**Resultado.**
+
+- Ya en el propio menú CONFIG, con `VERTICAL 1/2` el texto sale **girado 90°**.
+- En juego (3400, 4000) la escena está **girada 90° y llena los 640×480**, sin bandas: el
+  desplazamiento va de izquierda a derecha en pantalla, y el HUD (`1P`, `CHAIN STATUS`, puntuación,
+  `PRESS START`) va girado en los bordes largos. En 1900 la pantalla está negra (transición).
+- `VERTICAL 1` y `VERTICAL 2` son los dos sentidos de giro (`HORIZONTAL 1/2`, dos variantes del modo
+  horizontal); no comparé el sentido de cada uno.
+
+Es decir: **el giro lo hace el juego** en sus propias matrices/coordenadas de pantalla; el PVR recibe
+polígonos ya girados en 640×480. El port no tiene que girar nada para obtener TATE.
+
+**Propuesta para el plan.** (b) **Reescribir el 51** de forma más simple: en la PSP, TATE es elegir
+`MONITOR TYPE = VERTICAL` en el juego (o dejarlo grabado en la VMU) y escalar los 640×480 del guest
+a 272×363 girados 90° en el GE (`psp/stubs/video.cpp`, `video_draw_frame`: intercambiar x/y y la
+escala al pasar los vértices; no hace falta pasada extra). El mapeo de controles TATE del paso 19
+sigue haciendo falta. **Borrar el 50** como paso (contestado aquí). La medida del 49 (área 3:4 con
+paneles) aplica a Steam, no al Dreamcast: en Dreamcast TATE es pantalla completa.
