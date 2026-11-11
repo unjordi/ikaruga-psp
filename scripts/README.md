@@ -20,3 +20,4 @@
 - `comparar-titulo.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml> [--cuadro N] [--cuadro-pc M] [--sin-texturas]`: PSNR and mean error per channel between the PSP capture of guest frame N (default 1243, with `start@700`) and PC's frame M scaled to 480x272. `test-psp-titulo.sh` runs the acceptance tests (a)(b)(c), and (d) with `--todas`. See docs/titulo-psp.md.
 
 - `test-psp-video.sh <EBOOT.PBP> <dir-juego-extraido> <ikaruga_boot> <ikaruga.toml> [--reusar] [--solo a|b|c]`: acceptance of the user tile clip (side columns at frame 2600) and fog (mode buttons at frame 1700), each against PC by region PSNR with its negative (`recorte=0`, `niebla=0`), plus the title. See docs/video-psp.md.
+- `test-gitignore.sh`: game data, captures, memory cards and the cfg/log next to the EBOOT are ignored wherever they land; no tracked file matches `.gitignore`. Needs no game files.

@@ -3,6 +3,9 @@
 *.gdi
 *.cdi
 *.iso
+*.ISO
+*.img
+*.IMG
 *.bin
 *.raw
 *.track*
@@ -31,3 +34,11 @@ dc_flash*
 # Captures of the running game show its textures: local evidence only
 capturas/
 *.ppm
+captura-*
+psp-*.png
+pc-*.png
+flycast-*.png
+mascara-*.png
+VMU.BIN*
+ikaruga.cfg
+ikaruga.log
