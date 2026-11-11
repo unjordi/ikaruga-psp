@@ -15,6 +15,7 @@ modified.
 | `0007-vram-dirty-pages.patch` | Every write `DcMemory::resolve` sends to VRAM stamps its 4 KB page(s) with `vram_write_epoch`, so `psp/stubs/texture_psp.cpp` re-hashes only images whose pages were written. | two stores per VRAM write, nothing reads them |
 | `0008-optional-bios-image.patch` | With `-DDREAM_NO_BIOS_IMAGE` the 2 MB zero-filled boot ROM buffer is not allocated (the HLE BIOS never loads one); ROM reads give zero, writes are dropped. The PSP spends those 2 MB on the texture cache. | none unless the macro is defined |
 | `0009-fpu-float.patch` | FMAC, FIPR and FTRV in single-precision `float` (one product and one sum at a time, left to right, no FMA); `-DDREAM_FPU_DOUBLE=1` restores the upstream fused/double code. Same block as `patches/dream-recomp-pc/0002-…` so PC and PSP run identical code (docs/velocidad-psp.md, fila 9b). | changes what the game writes vs. upstream double, on PC too |
+| `0010-soft-daz.patch` | Under `-DDREAM_SOFT_DAZ=1` (on by default with `DREAM_FPU_DOUBLE=1`): FP registers that hold a denormal read as zero when they feed arithmetic (x86 MXCSR.DAZ; the PSP FPU with FCSR.FS flushes results only), the double FIPR/FTRV/FMAC flush a denormal single result, and a NaN result takes x86's NaN (first NaN operand, quieted, or 0xFFC00000) instead of libgcc soft-double's. Off in the float build that ships. docs/correctitud-psp.md (fila 8b). |
 
 Flags instead of patches (`psp/ikaruga/Makefile`):
 
