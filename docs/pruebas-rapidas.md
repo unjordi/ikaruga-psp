@@ -147,6 +147,78 @@ mkdir -p build/c; printf 'capturar_en=2600\ndibujar_desde=2590\nrtc_seed=1\n' > 
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=build/c/ikaruga.cfg scripts/probar-ikaruga-ppsspp.sh $E $J 2400 build/c/psp.log
 ```
 
+## `docs/velocidad-psp.md` ítem por ítem
+
+Esta fila no cambia la medición de velocidad: `medir-velocidad.sh` fuerza `PROBAR_SIN_LIMITE=0` y
+no escribe `dibujar_desde` (queda en 0: la salida temprana del video nunca se toma). Lo comprobé con
+una corrida de `medir-velocidad.sh --veces 1` del EBOOT de esta rama, con `PROBAR_SIN_LIMITE=1`
+exportado a propósito (`build/ev-vel/`, 2026-11-11):
+
+- juego 2600: speed 0,0830, host_s 522,983, draw_ms_per_render 17,76, **wall_s 531** (≈ host_s:
+  el limitador sigue puesto aunque el llamador exporte `PROBAR_SIN_LIMITE=1`);
+- título 1243: speed 0,1458, host_s 142,406, draw 0,26 ms, **wall_s 149**.
+
+El host_s del juego antes de tocar `main.cpp` (paso 1, EBOOT de develop sin cambios) era 522,985;
+con `dibujar_desde` compilado, 522,983: la rama nueva no cuesta nada medible.
+
+| ítem de `velocidad-psp.md` | ¿lo toca esta fila? | evidencia hoy (EBOOT de esta rama) |
+|---|---|---|
+| Cómo se mide (comando, 2 casos, `perf:`) | no: mismo comando, mismos casos | `medir-velocidad.sh` solo gana `PROBAR_SIN_LIMITE=0` explícito |
+| Criterio ≥ 3 % en dos corridas | no aplica: no es un cambio de velocidad | — |
+| Línea base juego 2600 (develop adc3ddd), corridas 1 y 2 | no: EBOOT histórico, no remedido | hoy 0,0830 (otro EBOOT) |
+| Línea base título 1243, corridas 1 y 2 | no: EBOOT histórico | hoy 0,1458 |
+| «medida determinista» | sí la usa esta fila: es lo que permite comparar con/sin limitador | host_s 522,985 con y sin limitador (paso 1) |
+| 0,0405 vs 0,0524 de geometría | no aplica (historia de discos) | — |
+| draw_ms_per_render es promedio acumulado | sí importa: con `dibujar_desde` el promedio cubre menos renders | no se usa en ninguna prueba de esta fila |
+| Cambio 1 A9 contadores | no lo toco; la línea `perf:` sigue | presente en `build/ev-vel/*/psp.log` |
+| Tramo título 300–1380 (host_s/60 cuadros) | no | 5,6–6,7; ftrv 3, fmac 2–154, fipr 0 |
+| Tramo juego 1500–1860 | no | 12,6–12,9; fipr 2 334, ftrv 5 197, fmac ~7 500, rechazos 0, draw 13–15 ms |
+| Tramo juego 2040–2600 | no | 14,7–25,8 |
+| throw por cuadro | no | 3–8 |
+| scheduler por cuadro | no | 1 525–1 598 |
+| Orden decidido (caché, A3, …) | no aplica | — |
+| Cambio 2: develop | no: histórico | — |
+| Cambio 2: solo páginas sucias | no: la época de VRAM avanza solo en renders dibujados; con `dibujar_desde` las páginas quedan marcadas y la caché, vacía, decodifica todo igual | captura 2600 idéntica (paso 2) |
+| Cambio 2: páginas sucias + espacio primero | no | over_budget 0 |
+| Título con páginas sucias 0,1458 | no | hoy 0,1458 |
+| Rechazos 10 907 con 2 MB | no | `test-psp-texturas-juego` (c) da 10 907 otra vez, con `dibujar_desde=0` |
+| Cambio 3 A3 entero (revertido) | no aplica | — |
+| Cambio 4 `cache2` / `nobios` | no; por eso `texturas-juego` no usa `dibujar_desde` | over_budget 0, peak_demand 2 445 440, decode_ms 1 313,7 |
+| Cambio 5 A5 (revertido) | no aplica | — |
+| Diagnóstico `diagfloat` | no aplica | — |
+| 9b: parches 0009 / PC 0002 | no los toco | — |
+| 9b: `-ffp-contract=off -frounding-math` | no los toco | — |
+| 9b: VFPU no usada | no aplica | — |
+| 9b: `gen/` no cambia | tampoco con esta fila (solo `main.cpp`) | — |
+| 9b: tabla nobios / float / vaciado de denormales | no remedido salvo float | float hoy 0,0830 (ver abajo) |
+| 9b: contadores al cuadro 2600 | no | fipr 4 526, ftrv 5 927, fmac 10 893: iguales |
+| 9b: igualdad (a) sin entrada 60…600 | sí: `test-psp-igual-pc` cambió | PASA en 13 s (`HASTA=600`) y en 10 s (`HASTA=240`) |
+| 9b: (a') `PULSAR` hasta 1980, (a'') 2400, (b), (b'), control double | no corridos en esta fila | el nuevo `max_cuadros=HASTA+1` aplica igual |
+| 9b: (c) título `--todas` | (a)(b)(c) corridos, `--todas` no (lo corre el orquestador) | 28,43 / 9,46 / 7,37 dB |
+| 9b: (e) las 8 de `--todas` | no corridas salvo igual-pc y geometría | geometría: polígonos 947 = 947 |
+| 9b: (d) `medir-velocidad --solo 2600` 0,0869 | remedido | 0,0830 (ver abajo) |
+| 9b: divergencia de 1983 (denormales) | no aplica (regla de la fila: no se persigue en `float`) | — |
+| Cambio 6 A6a SPG (revertido) | no aplica | — |
+| A13 excepciones | no aplica | — |
+| Resultado (a) juego 2600 | no | 0,0830 |
+| Resultado (b) título `--todas` | parcial | ver arriba |
+| Resultado (c) texturas `--psnr-ref 10.35` | corrida sin `--psnr-ref` | PASS (a) y (c); PSNR 17,92 dB |
+| RAM libre develop / cache2 / final | no; el cambio no reserva memoria | juego 2600: in_use 35 053 624, bloque mayor 1 088 KB, kernel 764 KB |
+| Qué NO verifiqué: hardware real | sigue igual | todo es PPSSPP |
+| — velocidad del título final | medida otra vez | 0,1458 |
+| — PSNR 2600 sin revisar a ojo | sigue | no miré las capturas a ojo |
+| — `DREAM_NO_BIOS_IMAGE` | sigue supuesto | — |
+| — costo de los contadores A9 | sigue sin medir | — |
+| — páginas sucias solo por `resolve` | sigue | — |
+| 9b: un solo `medir-velocidad`, carga del host | igual: una corrida | — |
+| 9b: imagen float vs Flycast | no revisado | — |
+| 9b: `build-psp-ikaruga.sh` reusa `obj/gen` | me afecta poco: solo cambié `main.cpp` (objeto de runtime, se recompila) | `strings` del ELF tiene `dibujar_desde` |
+
+**0,0830 frente al 0,0869 de la fila 9b.** No lo causa esta fila: el EBOOT de develop sin mis
+cambios (paso 1) ya daba host_s 522,985. Lo que cambió es el dibujo (draw_ms/render del 2600: 26,38
+hoy contra 11,37 en 9b). Puede venir del EBOOT `eboot-noftz` de 9b, armado sobre otro árbol (quizá sin
+la niebla en dos pasadas de las filas 6b/6c), pero no lo investigué.
+
 ## Qué NO verifiqué y dónde está mi punto ciego
 
 - `test-psp-titulo.sh --todas` no lo corrí (lo corre el orquestador); `test-psp-arranque`, `-rtc`,
