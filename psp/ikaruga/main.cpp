@@ -107,6 +107,8 @@ void log_line(const char* fmt, ...) {
 //   max_cuadros=N     quit at guest frame N
 //   pulsar=...        scripted presses, PC's --press syntax (start@700,a@1400)
 //   dibujar=0         clear and swap every frame but draw no geometry
+//   dibujar_desde=N   do not call the video at all before guest frame N (the guest runs the same;
+//                     the video only reads guest state): faster runs that capture frame >= N
 //   trazar=1          log every strip of the captured render
 //   profundidad=0     draw with the depth test off
 //   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
@@ -120,6 +122,7 @@ struct Config {
     std::uint64_t log_from = 0, log_count = 0;
     std::uint32_t test_exit_at = 0, test_suspend_at = 0;
     std::uint64_t capture_at = 0, max_frames = 0;
+    std::uint64_t draw_from = 0;
     std::string presses;
     bool draw = true;
     bool trace = false;
@@ -181,6 +184,8 @@ Config read_config() {
             cfg.depth = value != "0";
         else if (key == "trazar")
             cfg.trace = value != "0";
+        else if (key == "dibujar_desde")
+            cfg.draw_from = number();
         else if (key == "dibujar")
             cfg.draw = value != "0";
         else if (key == "texturas")
@@ -352,8 +357,9 @@ int main(int argc, char** argv) {
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
-        "rtc_seed %" PRIu32 " texturas %d texturas_kb %" PRIu32, cfg.capture_at, cfg.max_frames,
-        presses, cfg.draw ? 1 : 0, cfg.rtc_seed, cfg.textures ? 1 : 0, cfg.texture_kb);
+        "dibujar_desde %" PRIu64 " rtc_seed %" PRIu32 " texturas %d texturas_kb %" PRIu32,
+        cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0, cfg.draw_from, cfg.rtc_seed,
+        cfg.textures ? 1 : 0, cfg.texture_kb);
 
     const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
@@ -506,6 +512,12 @@ int main(int argc, char** argv) {
             ++texture_renders;
             texture_target = pvr.reg(0x060) & 0x00FFFFFFu;
         }
+        // dibujar_desde: renders before that frame are neither decoded nor drawn. The decoder is
+        // reset per render and the texture cache is still empty at the first drawn render, so
+        // every image is decoded from the VRAM of that moment; only the cache counters and its
+        // eviction history differ from a run that draws from frame 0.
+        if (sys.spg.frames() < cfg.draw_from)
+            return;
         decoder.reset();
         decoder.feed_stream(stream.data(), stream.size());
         dream::render::Frame& frame = decoder.frame();
