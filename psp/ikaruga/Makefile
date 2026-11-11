@@ -38,6 +38,11 @@ INCDIR = $(RT)/runtime/include $(RT)/render/include $(STUBS) $(GEN)
 # -ffp-contract=off -frounding-math: dream-recomp's ADR 16 (cmake/DreamTargetDefaults.cmake).
 # Exceptions stay on: rte() unwinds guest frames with a thrown NonLocalReturn.
 CFLAGS   = -G0 -ffp-contract=off -frounding-math -DDREAM_NO_CHD -DDREAM_PERF_COUNTERS -DDREAM_NO_BIOS_IMAGE
+# DREAM_FPU_DOUBLE=1: FIPR/FTRV/FMAC in upstream fused/double (patch 0009), the build that must
+# match the double PC launcher bit for bit.
+ifeq ($(DREAM_FPU_DOUBLE),1)
+CFLAGS += -DDREAM_FPU_DOUBLE=1
+endif
 CXXFLAGS = -std=gnu++20
 LDFLAGS  = -Wl,-Map,ikaruga.map
 LIBS     = -lstdc++ -lpspgu -lpspge -lpsppower -lpspdisplay -lpsprtc
