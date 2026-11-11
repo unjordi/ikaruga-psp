@@ -432,3 +432,51 @@ la traducción debe tratar `0x228…0x7370` como datos). Queda como condición p
 del paso 72: repetir los cuatro `--dump-aram` y la comparación al llegar ahí. El código del driver
 lo carga el SH-4 una vez antes del cuadro 300; el traductor estático tendría que leerlo de ARAM tras
 esa carga (o del archivo del disco del que sale), no del `1ST_READ.BIN`.
+
+## 23. ¿Hay un punto seguro para volcar y reanudar el estado?
+
+**Pregunta.** `docs/pruebas-rapidas.md` §3 (rama `feat/pruebas-rapidas`) propone volcar en
+`on_vblank_out` cuando el guest está en su bucle de espera y reanudar con `resume_at`, y pide comprobar
+que la dirección (`0x0c03e01c` en los logs) tiene entrada de reanudación.
+
+**Cómo lo medí.** Leyendo el C++ generado del PC (`dr-idle/build-rel/games/ikaruga/gen/ikaruga.cpp`)
+y `run_guest_impl`/`resume_at` (`third_party/dream-recomp/runtime/src/sh4/abi_bare.cpp:238-300`):
+
+```
+grep -n "case 0x0c0370bau\|idle_poll(c, m" gen/ikaruga.cpp
+grep -n "0x0c03e01c" gen/ikaruga.cpp
+python3: direcciones de retorno (c.pr = 0x…u) frente a etiquetas (case 0x…u: goto) del generado
+```
+
+**Resultado.**
+
+- `0x0c03e01c` **no es el bucle de espera**: es un `jsr @r14` dentro de `kmyStartRender` (el PC que
+  el log ve al llamar al callback de render). Su dirección de retorno `0x0c03e020` sí tiene etiqueta
+  (`kmyStartRender__resume`, `case 0x0c03e020u`), pero no es un buen punto: está a mitad del envío al
+  PVR.
+- **El punto seguro es `0x0C0370BA`**, cabeza del bucle de `kmWaitVBlank` (la misma del `[idle]`):
+  el generado tiene `case 0x0c0370bau: goto L_0c0370ba;` en `kmWaitVBlank__resume` y emite
+  `idle_poll(c, m, 0x0c0370bau)` justo ahí, que el runtime entrega a `Hooks::on_idle`. Es decir,
+  **ya hay un gancho que se ejecuta exactamente en ese PC**, con el guest fuera de interrupción, sin
+  render a medias y una vez por vuelta de espera.
+- Las 11 254 direcciones de retorno distintas del generado (`c.pr = …`) tienen etiqueta de
+  reanudación: los cinco llamadores de `kmWaitVBlank` (`0x0c03118c`, `0x0c03152a`, `0x0c0317e6`,
+  `0x0c0317f6`, …) también. Al reanudar, `run_guest_impl` sigue en `c.pr` cada vez que la función
+  reanudada vuelve, y cada función restaura su `pr` de la pila del guest (`lds.l @r15+,pr`), así que
+  la cadena de llamadores se rehace sola desde la RAM volcada.
+
+**Lo que falta (no lo resuelve esta lectura).** (1) `run_guest` no tiene una forma de *arrancar*
+reanudado: hace falta `run_guest_from(c, m, pc)` en `abi_bare.cpp` que entre al bucle de
+`run_guest_impl` con `resumed = true`. (2) Todo el estado fuera del `Ctx` y la memoria: eventos
+pendientes del scheduler (SPG, render en vuelo, timers del AICA, `gdrom-hle`), FIFO del TA, ARM7 y
+mezclador, Maple, épocas de VRAM, y `in_exception_frame()` de los hooks (debe ser falso en el
+volcado). La tabla de §3 de `pruebas-rapidas.md` ya lo lista.
+
+**Propuesta para el plan.** (c) **Partir el 23**, condicionado a que el 22 se cierre:
+
+- 23a. Volcar en `Hooks::on_idle` con `pc == 0x0C0370BA` y al cruzar el cuadro N (no en
+  `on_vblank_out`, que corre dentro de un evento del scheduler): `Ctx` + RAM/VRAM/ARAM + scheduler.
+- 23b. `run_guest_from` en `abi_bare.cpp` (parche al submódulo) y carga del volcado en
+  `psp/ikaruga/main.cpp`.
+- 23c. Serializar cada dispositivo (PVR/TA, AICA/ARM7, Maple, BIOS HLE). Cierra con `write_hash`
+  idéntico en los 60 cuadros siguientes (build `double`).
