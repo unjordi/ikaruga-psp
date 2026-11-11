@@ -124,3 +124,93 @@ para el capítulo 1**. La comprobación de los capítulos 2–5 no se hace apart
 (recorrer los capítulos en PPSSPP), donde la PSP ya cuenta `texture_renders` en el log
 (`psp/ikaruga/main.cpp`, lambda `pvr.on_render`). Basta con que el paso 72 diga «`texture_renders`
 sigue en 0; si no, abrir el paso de render a textura».
+
+## 40–48. Sospechas de video: ¿Ikaruga las ejercita?
+
+**Pregunta.** Para cada sospecha de `docs/plan.md` 40–48, ¿la usa el juego, en qué escena y en cuántos
+polígonos?
+
+**Cómo lo medí.** Volqué el TA del primer render en o después de 11 cuadros (título 300/600, menú
+1100, inicio del capítulo 1 1500/2000, capítulo 1 2600/3500/4500/6000, 7500/9000 que dan la misma
+lista) y lo decodifiqué con el mismo `dream::render::DisplayList` que usa la PSP, con un contador de
+bits de ISP/TSP/TCW/PCW: `tools/analizar-ta.cpp` (herramienta de investigación, no prueba; se
+compila con la línea que trae en la cabecera). Los registros del PVR salen de `--dump-vram` en 2000,
+2600 y 3500.
+
+```
+for f in 300 600 1100 1500 2000 2600 3500 4500 6000 7500 9000; do
+  $B --config $T --rtc-seed 1 --press $P --max-frames $((f+1)) --dump-ta-at-frame $f --dump-ta ta-$f.bin
+  build/host/analizar-ta ta-$f.bin > analisis-$f.txt
+done
+$B --config $T --rtc-seed 1 --press $P --max-frames 2600 --dump-vram vram-2600.bin   # + .regs
+```
+
+Polígonos por render: 300: 25 · 1100: 102 · 1500: 814 · 2000: 2049 · 2600: 947 · 3500: 1771 ·
+4500: 1761 · 6000: 1164 · 7500: 429. Ningún parámetro desconocido ni vértice tirado.
+
+**Resultado.**
+
+| paso | sospecha | ¿usada? | escena | polígonos (por render) |
+|---|---|---|---|---|
+| 42 | culling CW/CCW (ISP modo 2/3) | **no** | — | 0 en todas |
+| 42 | culling «si es pequeño» (modo 1, `FPU_CULL_VAL` = 0,01) | sí | capítulo 1 | OP 552–1476, TR 353 (2600) |
+| 43 | modifier volumes | listas sí, efecto **no** | todas | 8–36 triángulos de volumen, todos modo 0 (ninguno cierra un volumen); 0 polígonos con bit *shadow*/dos volúmenes; `FPU_SHAD_SCALE` = 0x1 |
+| 44 | color offset (bit offset del PCW) | **sí** | capítulo 1 | OP 542 (2600) – 1471 (4500); TR 179–515 |
+| 44 | …con offset distinto de 0 (se vería) | **sí** | desde 2000 | OP 68 (2600) – 733 (4500); TR 12–114 |
+| 44 | color clamp (TSP bit 21) | **no** | — | 0 |
+| 45 | niebla modo 0 (tabla) / 2 (ninguna) | sí | todas | OP 473–1412 en tabla |
+| 45 | niebla modos 1 (vértice) y 3 (tabla 2) | **no** | — | 0 |
+| 45 | translúcidas con niebla y origen ≠ SA/ONE | **no** | — | 0 (las TR solo usan SA/ONE y SA/ISA; las OP ONE/ZERO) |
+| 46 | formatos 1555, 565, 4444 | sí | todas | 565 en todas las OP texturizadas |
+| 46 | VQ, mipmaps | sí | capítulo 1 | VQ OP 339–1440; mip OP hasta 1394 |
+| 46 | PAL4 / PAL8 | sí / casi no | título–capítulo 1 | PAL4 TR 1–204; **PAL8 2 polígonos** (2000–4500) |
+| 46 | paleta 8888 (`PAL_RAM_CTRL` = 3) | **no** | — | `PAL_RAM_CTRL` = 2 (4444) en 2000/2600/3500 |
+| 46 | YUV, bump | **no** | — | 0 |
+| 46 | espejo/flip UV | **no** | — | 0 (sí clamp UV: OP 77–1471) |
+| 46 | stride | **no** | — | 0; no-twiddled solo 6 polígonos 1555 del título |
+| 46 | decal alpha / ignore_texture_alpha | **no** | — | 0: todo polígono texturizado usa *modulate alpha* (shading 3) |
+| 48 | recorte de usuario modo 3 (fuera) | **no** | — | 0; modo 2 (dentro) en casi todo |
+| 41 | perspectiva (1/w distinto dentro de una tira) | **sí** | capítulo 1 | tiras con 1/w máx/mín > 1,5: OP 124 + TR 154 (2600); > 3: OP 42 + TR 82 |
+| 40 | rango de 1/w por escena | ancho | capítulo 1 | 5,4·10⁻⁵ … 1,0021 (relación hasta 18 487) |
+
+Profundidad (paso 40), el detalle: la PSP reparte linealmente `min_z…max_z` del render en 16 bits
+(`psp/stubs/video.cpp`, `video_draw_frame`, `zbias + (v.z - zmin) * zscale`), un paso de 1,53·10⁻⁵.
+Pero el HUD y el fondo están en 1/w ≈ 1 y la escena en 10⁻³…10⁻¹, así que la escena cae en pocos
+escalones:
+
+| render | 1/w en [10⁻³, 10⁻²): valores distintos → escalones de 16 bits | [10⁻², 10⁻¹) |
+|---|---|---|
+| 2000 | 5253 → **77** | — |
+| 2600 | 632 → 242 | 1782 → 1114 |
+| 3500 | 2123 → 445 | 1441 → 326 |
+| 4500 | 2615 → **180** | 361 → 96 |
+
+Miles de profundidades distintas comparten escalón: con GEQUAL (el modo de casi todo, ISP 6) lo que
+está detrás y se dibuja después gana. Es z-fighting probable, no visto (no corrí PPSSPP).
+
+**Propuestas para el plan.**
+
+- **42 → borrar.** El juego nunca pide culling por orientación; el «si es pequeño» solo quita
+  polígonos de menos de 0,01 px², invisibles.
+- **43 → borrar.** Hay triángulos de volumen, pero ningún polígono los consulta (sin bit shadow ni
+  dos volúmenes) y ningún volumen se cierra. No hay sombra que dibujar.
+- **44 → partir:** (44a) **color offset**, trabajo concreto en `psp/stubs/video.cpp`,
+  `video_draw_frame`: una pasada aditiva sin textura con el color offset (`GU_ADD`, `GU_FIX` 1/1,
+  profundidad EQUAL como la pasada de niebla) solo para las tiras con offset ≠ 0; cierra con la
+  escena 4500 (733 polígonos) contra Flycast. Color clamp: **borrar**.
+- **45 → reducir** a «niebla de tabla correcta» (ya hecha en el paso 14). Modos 1/3 y translúcidas
+  con otro factor: **borrar**. El riesgo de la pasada EQUAL en hardware se mueve al **paso 82**.
+- **46 → reducir** a: (i) PAL8, 2 polígonos: comprobar que se dibujan (una mirada al log
+  `trazar=1` en 2600); (ii) contar texturas que no caben: ya está — el log de la PSP imprime
+  `failed`/`over_budget` cada `kLogEvery` (`psp/ikaruga/main.cpp`, `on_vblank_out`); basta con que
+  la prueba de imagen lo lea. Espejo, YUV, bump, paleta 8888, stride, decal, ignore_texture_alpha y
+  la llave con `PAL_RAM_CTRL`: **borrar** (constante en 2).
+- **48 → borrar el modo 3**; el parpadeo de PRESS START es cobertura de escenas y va al paso 85.
+- **41 → trabajo concreto, con medida previa:** hay tiras con 1/w ×3 de un extremo a otro, así que
+  la deformación afín del modo through existirá. Primero una captura de PSP del cuadro 2600 contra
+  Flycast mirando el suelo/estructuras inclinadas (la sacará el paso 35); si se ve, subdividir en
+  `video_draw_frame` las tiras con relación > 1,5 (≈280 por render) en vez de pasar a modo 3D.
+- **40 → trabajo concreto:** en `video_draw_frame`, repartir la profundidad en log2(1/w) (como PC)
+  o, más barato, calcular `zmin/zmax` sin los planos de HUD/fondo (1/w ≥ 1) y darles un escalón
+  aparte. Se cierra con el render 2000 sin escalones compartidos entre polígonos que se tapan
+  (contarlo con `tools/analizar-ta.cpp`) y la captura contra Flycast.
