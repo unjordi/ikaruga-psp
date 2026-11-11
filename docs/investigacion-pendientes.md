@@ -403,3 +403,32 @@ al entrar al capítulo, ≈3,7 % del guest y fuera del juego. Un tipo nuevo de `
 (`gdfs_wait_complete`, cabeza en `0x0C040E14`: saltar hasta el siguiente evento `gdrom-hle` del
 scheduler) es posible pero **va al final de la sección de velocidad**, porque no toca el capítulo 1.
 Pausa y cambio de capítulo: medirlos con el mismo `--sample` cuando el paso 72 llegue a ellos.
+
+## 71 (condición). ¿El driver de sonido del ARM se modifica en ARAM durante el juego?
+
+**Pregunta.** Para traducir estáticamente el driver del ARM hace falta que su código no cambie.
+
+**Cómo lo medí.** Volqué los 2 MB de ARAM en cuatro momentos (título 300, menú 1300, capítulo 1
+2600 y 6000) y comparé palabra a palabra la zona de código: desde los vectores (`ea00003e…`, saltos
+ARM en 0x0) hasta la última palabra con forma de instrucción incondicional (`cond = 0xE`) de los
+primeros 64 KB, `0x9010`. Ahí están todos los PC que da el histograma del ARM (`0x1c4`, `0xac0`,
+`0xd60`, `0x1d10–0x1d48`).
+
+```
+for f in 300 1300 2600 6000; do $B --config $T --rtc-seed 1 --press $P --max-frames $f --dump-aram aram-$f.bin; done
+# python: palabras distintas en [0, 0x9020) entre 300→1300→2600→6000, y cuáles tienen forma de instrucción
+```
+
+**Resultado.** En `[0, 0x9020)` cambian **22 palabras** entre los cuatro volcados (`0x228, 0x30c,
+0x3a8, 0xadc, 0xb5c–0xb60, 0x16a4–0x16e4, 0x1808–0x1814, 0x197c, 0x1a68, 0x1c0c, 0x1c54, 0x7370`), y
+**ninguna tiene forma de instrucción en ningún volcado**: son contadores, punteros y estado
+(p. ej. `0x3a8` vale `0x998/0x1d8/0x99c/0xd64`, un PC guardado; `0x30c` crece 0x15→0x19c). Las
+instrucciones del driver son las mismas del título al cuadro 6000. Lo que cambia por encima de
+`0xafe0` son búferes y muestras (bancos de sonido que el SH-4 descarga, `sdBankDownload…`).
+
+**Propuesta para el plan.** (b) El paso 71 puede tachar «requiere comprobar que no se modifica en
+ARAM» como **comprobado para título y capítulo 1** (variables de datos dentro de la imagen sí:
+la traducción debe tratar `0x228…0x7370` como datos). Queda como condición para los capítulos 2–5
+del paso 72: repetir los cuatro `--dump-aram` y la comparación al llegar ahí. El código del driver
+lo carga el SH-4 una vez antes del cuadro 300; el traductor estático tendría que leerlo de ARAM tras
+esa carga (o del archivo del disco del que sale), no del `1ST_READ.BIN`.
