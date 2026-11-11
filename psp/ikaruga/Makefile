@@ -43,6 +43,12 @@ CFLAGS   = -G0 -ffp-contract=off -frounding-math -DDREAM_NO_CHD -DDREAM_PERF_COU
 ifeq ($(DREAM_FPU_DOUBLE),1)
 CFLAGS += -DDREAM_FPU_DOUBLE=1
 endif
+# DREAM_SOFT_DAZ=1 (default: same as DREAM_FPU_DOUBLE): denormal FP registers read as zero, as on
+# x86 with MXCSR.DAZ (patch 0010). Without it the double build diverges from PC at frame 1983.
+DREAM_SOFT_DAZ ?= $(DREAM_FPU_DOUBLE)
+ifeq ($(DREAM_SOFT_DAZ),1)
+CFLAGS += -DDREAM_SOFT_DAZ=1
+endif
 CXXFLAGS = -std=gnu++20
 LDFLAGS  = -Wl,-Map,ikaruga.map
 LIBS     = -lstdc++ -lpspgu -lpspge -lpsppower -lpspdisplay -lpsprtc

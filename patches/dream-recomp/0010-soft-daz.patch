@@ -1,0 +1,184 @@
+FP registers read as zero when they hold a denormal (x86 MXCSR.DAZ) and FIPR/FTRV/FMAC flush a
+denormal single result (MXCSR.FTZ) under -DDREAM_SOFT_DAZ=1. The PSP FPU with FCSR.FS flushes
+results only, and its soft-double/fmaf paths ignore FS. Applies after 0009.
+
+diff -ru base/runtime/include/dream/runtime/sh4/ctx.h new/runtime/include/dream/runtime/sh4/ctx.h
+--- a/runtime/include/dream/runtime/sh4/ctx.h	2026-11-11 02:53:07.334051450 -0600
++++ b/runtime/include/dream/runtime/sh4/ctx.h	2026-11-11 02:55:33.593866587 -0600
+@@ -13,9 +13,41 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <cstring>
++
++// DREAM_SOFT_DAZ=1: FP registers read as zero when they hold a denormal and feed arithmetic,
++// as x86 does with MXCSR.DAZ for the guest's FPSCR.DN. The PSP FPU (FCSR.FS) flushes denormal
++// results but takes denormal inputs as they are. Moves and stores keep the raw bits.
++#ifndef DREAM_SOFT_DAZ
++#define DREAM_SOFT_DAZ 0
++#endif
+ 
+ namespace dream::sh4 {
+ 
++#if DREAM_SOFT_DAZ
++struct Freg {
++    float v;
++    static float daz(float x) noexcept {
++        std::uint32_t u;
++        std::memcpy(&u, &x, 4);
++        if ((u & 0x7F800000u) == 0) {
++            u &= 0x80000000u;
++            std::memcpy(&x, &u, 4);
++        }
++        return x;
++    }
++    operator float() const noexcept { return daz(v); }
++    Freg& operator=(float x) noexcept { v = x; return *this; }
++    Freg& operator+=(float x) noexcept { v = daz(v) + x; return *this; }
++    Freg& operator-=(float x) noexcept { v = daz(v) - x; return *this; }
++    Freg& operator*=(float x) noexcept { v = daz(v) * x; return *this; }
++    Freg& operator/=(float x) noexcept { v = daz(v) / x; return *this; }
++};
++static_assert(sizeof(Freg) == 4);
++#else
++using Freg = float;
++#endif
++
+ struct Ctx {
+     std::uint32_t r[16];      // general registers, current bank in r[0..7]
+     std::uint32_t r_bank[8];  // the other bank of R0..R7
+@@ -33,8 +65,8 @@
+     std::uint32_t fpul;
+     std::uint32_t fpscr;
+     std::uint32_t t;       // cached SR.T (0 or 1)
+-    float fr[16];          // front FP bank (FR0..15 when FPSCR.FR == 0)
+-    float xf[16];          // back FP bank
++    Freg fr[16];          // front FP bank (FR0..15 when FPSCR.FR == 0)
++    Freg xf[16];          // back FP bank
+     std::uint64_t cycles;  // virtual clock, advanced by emitted code estimates
+     // Emitted code polls `cycles >= next_event` at function entries and loop back-edges and then
+     // calls deliver_irq, which runs the scheduler up to `cycles`, delivers interrupts, and sets the
+diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/runtime/sh4/ops.h
+--- a/runtime/include/dream/runtime/sh4/ops.h	2026-11-11 02:53:07.334051450 -0600
++++ b/runtime/include/dream/runtime/sh4/ops.h	2026-11-11 02:56:04.426670386 -0600
+@@ -217,7 +217,7 @@
+ // FRCHG: swap the two FP banks.
+ inline void frchg(Ctx& c) noexcept {
+     for (int i = 0; i < 16; ++i) {
+-        const float tmp = c.fr[i];
++        const Freg tmp = c.fr[i];
+         c.fr[i] = c.xf[i];
+         c.xf[i] = tmp;
+     }
+@@ -239,6 +239,19 @@
+     std::memcpy(&u, &f, 4);
+     return u;
+ }
++#if DREAM_SOFT_DAZ
++// Raw bits of a register (stores and moves never flush).
++inline std::uint32_t f2u(const Freg& f) noexcept {
++    std::uint32_t u;
++    std::memcpy(&u, &f.v, 4);
++    return u;
++}
++// x86 cvtsd2ss/fmaf with MXCSR.FTZ: a denormal single result is a signed zero. The PSP's
++// soft-double conversion and fmaf do not look at FCSR.FS.
++inline float ftz(float x) noexcept { return Freg::daz(x); }
++#else
++inline float ftz(float x) noexcept { return x; }
++#endif
+ inline float u2f(std::uint32_t u) noexcept {
+     float f;
+     std::memcpy(&f, &u, 4);
+@@ -272,13 +285,13 @@
+ 
+ // 64-bit pair moves (FPSCR.SZ = 1). The register field's low bit selects the back bank (XDn).
+ inline void fmov_pair_load(Ctx& c, unsigned field, std::uint64_t v) noexcept {
+-    float* bank = (field & 1) ? c.xf : c.fr;
++    Freg* bank = (field & 1) ? c.xf : c.fr;
+     const unsigned n = field & ~1u;
+     bank[n] = u2f(static_cast<std::uint32_t>(v >> 32));
+     bank[n + 1] = u2f(static_cast<std::uint32_t>(v));
+ }
+ inline std::uint64_t fmov_pair_store(const Ctx& c, unsigned field) noexcept {
+-    const float* bank = (field & 1) ? c.xf : c.fr;
++    const Freg* bank = (field & 1) ? c.xf : c.fr;
+     const unsigned n = field & ~1u;
+     return (static_cast<std::uint64_t>(f2u(bank[n])) << 32) | f2u(bank[n + 1]);
+ }
+@@ -334,7 +347,7 @@
+ // here as the one place the choice lives (ADR 16); WP1.5 checks it against the interpreter.
+ inline float fmac(float fr0, float frm, float frn) noexcept {
+     DREAM_PERF_INC(fmac);
+-    return std::fmaf(fr0, frm, frn);
++    return ftz(std::fmaf(fr0, frm, frn));
+ }
+ #endif  // DREAM_FPU_DOUBLE
+ 
+@@ -359,8 +372,8 @@
+ // FIPR FVm,FVn: FR[n+3] = ((a0*b0 + a1*b1) + a2*b2) + a3*b3, every product and sum in float.
+ inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
+     DREAM_PERF_INC(fipr);
+-    const float* a = &c.fr[n];
+-    const float* b = &c.fr[m];
++    const Freg* a = &c.fr[n];
++    const Freg* b = &c.fr[m];
+     float d = a[0] * b[0];
+     d += a[1] * b[1];
+     d += a[2] * b[2];
+@@ -371,9 +384,9 @@
+ // FTRV XMTRX,FVn: FV[n] = XMTRX * FV[n] in float, one row at a time, same order as FIPR.
+ inline void ftrv(Ctx& c, unsigned n) noexcept {
+     DREAM_PERF_INC(ftrv);
+-    const float* v = &c.fr[n];
++    const Freg* v = &c.fr[n];
+     const float x = v[0], y = v[1], z = v[2], w = v[3];
+-    const float* xm = c.xf;
++    const Freg* xm = c.xf;
+     float r[4];
+     for (unsigned i = 0; i < 4; ++i) {
+         float d = xm[i] * x;
+@@ -391,28 +404,28 @@
+ // equals the separate multiply and add.
+ inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
+     DREAM_PERF_INC(fipr);
+-    const float* a = &c.fr[n];
+-    const float* b = &c.fr[m];
++    const Freg* a = &c.fr[n];
++    const Freg* b = &c.fr[m];
+     double d = static_cast<double>(a[0]) * b[0];
+     d += static_cast<double>(a[1]) * b[1];
+     d += static_cast<double>(a[2]) * b[2];
+     d += static_cast<double>(a[3]) * b[3];
+-    c.fr[n + 3] = static_cast<float>(d);
++    c.fr[n + 3] = ftz(static_cast<float>(d));
+ }
+ 
+ // FTRV XMTRX,FVn: FV[n] = XMTRX * FV[n], XMTRX being the back bank as a 4x4 column-major matrix.
+ // Same double accumulation as FIPR, one row at a time, left to right.
+ inline void ftrv(Ctx& c, unsigned n) noexcept {
+     DREAM_PERF_INC(ftrv);
+-    const float* v = &c.fr[n];
++    const Freg* v = &c.fr[n];
+     const float x = v[0], y = v[1], z = v[2], w = v[3];
+-    const float* xm = c.xf;
++    const Freg* xm = c.xf;
+     double r[4];
+     for (unsigned i = 0; i < 4; ++i) {
+         r[i] = static_cast<double>(xm[i]) * x + static_cast<double>(xm[i + 4]) * y +
+                static_cast<double>(xm[i + 8]) * z + static_cast<double>(xm[i + 12]) * w;
+     }
+-    for (unsigned i = 0; i < 4; ++i) c.fr[n + i] = static_cast<float>(r[i]);
++    for (unsigned i = 0; i < 4; ++i) c.fr[n + i] = ftz(static_cast<float>(r[i]));
+ }
+ #endif  // DREAM_FPU_DOUBLE
+ 
+@@ -421,7 +434,7 @@
+     v &= 0x003FFFFFu;
+     if ((v ^ c.fpscr) & FPSCR_FR) {
+         for (int i = 0; i < 16; ++i) {
+-            const float tmp = c.fr[i];
++            const Freg tmp = c.fr[i];
+             c.fr[i] = c.xf[i];
+             c.xf[i] = tmp;
+         }
