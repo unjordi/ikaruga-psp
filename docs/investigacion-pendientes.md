@@ -293,3 +293,41 @@ estructura, el filtrado/mip es la causa.
   `sceGuTexLevelMode`): solo si (ii) muestra que el filtrado es la causa.
 - 36d (reflejo de la estructura): queda pendiente de 36b/36c; si sobrevive, es el color offset del
   paso 44a.
+
+## 47. Denormales en el build `float`: ¿cambian algo visible?
+
+**Pregunta.** ¿El vaciado de denormales (el SH-4 los aplana con FPSCR.DN; la FPU de la PSP no) produce
+algo que se vea?
+
+**Lo que hay.** El runtime de PC ya pone FTZ+DAZ en MXCSR cada vez que el guest escribe FPSCR con DN=1
+(`third_party/dream-recomp/runtime/src/fenv.cpp`, `set_flush`; el FPSCR por defecto de Katana es
+`0x00040001`, DN=1). El único lanzador de PC disponible (`dr-idle/build-rel`) es el build `float` y
+no hay un build `double` ni uno sin FTZ en la máquina; el runtime fija MXCSR con la instrucción
+`ldmxcsr` en línea, así que no se puede anular desde fuera con `LD_PRELOAD`.
+
+**Lo que medí (control, no responde la pregunta).** Forzar FTZ/DAZ desde el arranque con un
+`LD_PRELOAD` que hace `_mm_setcsr(... | 0x8040)` antes de `main`:
+
+```
+$B ... --max-frames 9000 --write-hash hash-normal.txt
+LD_PRELOAD=ftz.so $B ... --max-frames 9000 --write-hash hash-ftz.txt
+cmp hash-normal.txt hash-ftz.txt   # IGUALES, 9003 líneas
+```
+
+Idéntico hasta el cuadro 9000: el código del runtime anterior al primer `LDS FPSCR` del guest no
+toca denormales. No dice nada de la PSP.
+
+**Lo que ya se sabía** (`docs/velocidad-psp.md:215-220`): la primera divergencia PC↔PSP por
+denormales es una escritura del cuadro 1983 (`njGetTranslation`, fr1 = 0 en PC y `0x057DE800` en la
+PSP), es decir un valor de ≈10⁻³⁸ que en PC se aplana a 0. Una traslación de 10⁻³⁸ no mueve ningún
+vértice un píxel; que se vea solo puede venir de que un camino del juego compare contra 0 exacto.
+
+**Resultado.** No se puede medir en PC sin otro build; por la regla del proyecto (divergencias de
+FPU en `float` no son bug) y porque el único caso conocido es del orden de 10⁻³⁸, no hay evidencia de
+efecto visible.
+
+**Propuesta para el plan.** (a) **Borrar el paso 47** como paso propio. Si la comparación escena por
+escena contra Flycast (paso 35) o el recorrido de capítulos (72) muestra una diferencia de
+comportamiento (no de píxeles) sin otra causa, entonces se abre un paso con el experimento:
+build PC sin FTZ (`set_flush` vacío) contra el normal, `--write-hash` y captura en el punto de la
+diferencia.
