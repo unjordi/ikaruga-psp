@@ -111,6 +111,7 @@ void log_line(const char* fmt, ...) {
 //   volcar_ta=1       also write the captured render's parameter stream to ta-N.bin
 //   texturas=0        draw textured polygons in their vertex colour only
 //   texturas_kb=N     cap of the texture cache in KB (default 2560)
+//   recorte=0         ignore the polygons' user tile clip (modes 2 and 3)
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -124,6 +125,7 @@ struct Config {
     bool dump_ta = false;
     bool textures = true;
     std::uint32_t texture_kb = 2560;
+    bool clip = true;
 };
 
 std::string trimmed(const std::string& s) {
@@ -182,6 +184,8 @@ Config read_config() {
             cfg.textures = value != "0";
         else if (key == "texturas_kb")
             cfg.texture_kb = static_cast<std::uint32_t>(number());
+        else if (key == "recorte")
+            cfg.clip = value != "0";
     }
     if (cfg.hash_every == 0)
         cfg.hash_every = kLogEvery;
@@ -317,6 +321,7 @@ int main(int argc, char** argv) {
     const Config cfg = read_config();
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
+    host::video_set_clip(cfg.clip);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
@@ -432,6 +437,9 @@ int main(int argc, char** argv) {
     // decoded stream's, before the background plane is added, so it matches the PC launcher's.
     dream::render::DisplayList decoder;
     std::uint64_t renders = 0, draw_us = 0;
+    // Renders the guest pointed at a texture (FB_W_SOF1 bit 24), the last one's target address.
+    std::uint64_t texture_renders = 0;
+    std::uint32_t texture_target = 0;
     // Per-frame averages since the previous perf line: guest FPU vector ops, NonLocalReturn
     // throws (also per host second), scheduler callbacks, texture cache traffic and draw time.
     struct PerfMark {
@@ -467,6 +475,10 @@ int main(int argc, char** argv) {
     };
     pvr.on_render = [&](const std::vector<std::uint32_t>& stream) {
         const std::uint64_t r0 = host::clock_us();
+        if (pvr.reg(0x060) & 0x01000000u) {
+            ++texture_renders;
+            texture_target = pvr.reg(0x060) & 0x00FFFFFFu;
+        }
         decoder.reset();
         decoder.feed_stream(stream.data(), stream.size());
         dream::render::Frame& frame = decoder.frame();
@@ -497,6 +509,10 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
+            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " texture_renders %"
+                PRIu64 " last_texture_target 0x%06" PRIx32 " fb_w_ctrl 0x%08" PRIx32
+                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, texture_renders,
+                texture_target, pvr.reg(0x048), pvr.reg(0x060));
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32
                 " peak %" PRIu32 " budget %" PRIu32 " decoded %" PRIu32 " invalidated %" PRIu32
@@ -538,8 +554,9 @@ int main(int argc, char** argv) {
         if (f % kLogEvery == 0) {
             report("tick");
             log_perf(f);
-            log_line("video: renders %" PRIu64 " draw_ms_per_render %.2f", renders,
-                renders ? static_cast<double>(draw_us) / 1000.0 / renders : 0.0);
+            log_line("video: renders %" PRIu64 " draw_ms_per_render %.2f texture_renders %" PRIu64,
+                renders, renders ? static_cast<double>(draw_us) / 1000.0 / renders : 0.0,
+                texture_renders);
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: entries %" PRIu32 " bytes %" PRIu32 " peak %" PRIu32
                 " decoded %" PRIu32 " invalidated %" PRIu32 " evicted %" PRIu32 " failed %" PRIu32

@@ -13,6 +13,9 @@
 //     edge. Mirroring is done in the image (see texture_psp.cpp) and sampled with GU_REPEAT.
 //   * SrcInstr/DstInstr -> sceGuBlendFunc, see ge_blend_factor. All eight PowerVR factors exist
 //     on the GE; the secondary accumulation buffer (SrcSelect/DstSelect) does not and is ignored.
+//   * user tile clip (PCW) -> sceGuScissor: mode 2 inside the rectangle, mode 3 as up to four
+//     scissored draws around it, restored to the whole screen after (Ikaruga keeps its play field
+//     out of the HUD columns this way).
 // Not drawn: the offset (specular) colour, fog and colour clamp, which the GE's fixed function has
 // no place for in through mode.
 //
@@ -60,6 +63,7 @@ bool g_ready = false;
 void (*g_trace)(const char*, ...) = nullptr;
 bool g_enabled = true;
 bool g_depth = true;
+bool g_clip = true;
 std::uint32_t g_front = kColourBytes;  // eDRAM offset of the buffer on screen
 std::uint32_t g_back = 0;
 
@@ -96,7 +100,37 @@ std::uint32_t argb_to_abgr(std::uint32_t c, bool use_alpha) {
     return (a << 24) | ((c & 0xFFu) << 16) | (c & 0xFF00u) | ((c >> 16) & 0xFFu);
 }
 
+// The user tile clip of a polygon (mode 2 inside, 3 outside) as up to four GE scissor rectangles
+// at 480x272, each {x, y, w, h}. A pixel is inside when its centre is, so edges round to nearest.
+// Returns how many rectangles; -1 when the polygon is not clipped (full screen).
+int clip_rects(const dream::render::Polygon& p, int rects[4][4]) {
+    if (p.tile_clip < 2)
+        return -1;
+    const auto sx = [](int v) { return std::clamp(static_cast<int>(v * kScaleX + 0.5f), 0, kWidth); };
+    const auto sy = [](int v) { return std::clamp(static_cast<int>(v * kScaleY + 0.5f), 0, kHeight); };
+    const int x0 = sx(p.clip_x0), x1 = std::max(x0, sx(p.clip_x1));
+    const int y0 = sy(p.clip_y0), y1 = std::max(y0, sy(p.clip_y1));
+    int n = 0;
+    const auto add = [&](int x, int y, int w, int h) {
+        if (w > 0 && h > 0) {
+            rects[n][0] = x; rects[n][1] = y; rects[n][2] = w; rects[n][3] = h;
+            ++n;
+        }
+    };
+    if (p.tile_clip == 2) {
+        add(x0, y0, x1 - x0, y1 - y0);
+    } else {
+        add(0, 0, kWidth, y0);               // above
+        add(0, y1, kWidth, kHeight - y1);    // below
+        add(0, y0, x0, y1 - y0);             // left
+        add(x1, y0, kWidth - x1, y1 - y0);   // right
+    }
+    return n;
+}
+
 }  // namespace
+
+void video_set_clip(bool enabled) { g_clip = enabled; }
 
 bool video_init() {
     sceGuInit();
@@ -227,6 +261,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
     sceGuDisable(GU_TEXTURE_2D);
     const void* bound = nullptr;
     bool texturing = false;
+    bool scissored = false;
     if (g_enabled) {
         for (const Item& item : items) {
             // Room for one strip's state and draw plus the closing commands; the rest of the
@@ -274,8 +309,26 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
                 sceGuEnable(GU_ALPHA_TEST);
             else
                 sceGuDisable(GU_ALPHA_TEST);
-            sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count), nullptr,
-                           g_vertices.data() + p.first);
+            int rects[4][4];
+            const int nrects = g_clip ? clip_rects(p, rects) : -1;
+            if (nrects < 0) {
+                if (scissored) {
+                    sceGuScissor(0, 0, kWidth, kHeight);
+                    scissored = false;
+                }
+                sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count), nullptr,
+                               g_vertices.data() + p.first);
+            } else {
+                // Mode 2 draws once in its rectangle; mode 3 once per band around it. Nothing to
+                // draw when the rectangle (or its outside) is empty on screen.
+                ++(p.tile_clip == 2 ? stats.clip_inside : stats.clip_outside);
+                for (int r = 0; r < nrects; ++r) {
+                    sceGuScissor(rects[r][0], rects[r][1], rects[r][2], rects[r][3]);
+                    sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count),
+                                   nullptr, g_vertices.data() + p.first);
+                }
+                scissored = true;
+            }
             ++stats.drawn;
             if (g_trace) {
                 const GeVertex& v0 = g_vertices[p.first];
@@ -288,6 +341,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref) 
             }
         }
     }
+    sceGuScissor(0, 0, kWidth, kHeight);
     sceGuDisable(GU_BLEND);
     sceGuDisable(GU_ALPHA_TEST);
     sceGuDisable(GU_TEXTURE_2D);

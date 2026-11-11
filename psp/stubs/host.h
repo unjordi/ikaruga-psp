@@ -21,12 +21,15 @@ struct VideoStats {
     std::uint32_t list_bytes = 0;  // GE display list used by the render, of list_capacity
     std::uint32_t list_capacity = 0;
     std::uint32_t dropped = 0;  // strips not drawn because the display list was full
+    std::uint32_t clip_inside = 0, clip_outside = 0;  // strips drawn under user clip mode 2 / 3
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
 void video_set_drawing(bool enabled);
 // Off: every strip passes, whatever its depth compare.
 void video_set_depth_test(bool enabled);
+// Off: the polygons' user tile clip (modes 2 and 3) is ignored.
+void video_set_clip(bool enabled);
 // Called once per strip drawn while set (diagnostics); nullptr turns it off.
 void video_set_trace(void (*trace)(const char*, ...));
 // Draws one decoded render into the back buffer and shows it.
