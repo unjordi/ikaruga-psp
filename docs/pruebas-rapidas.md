@@ -98,4 +98,71 @@ callbacks del planificador se registren siempre en el mismo orden. Un estado ocu
 
 ## 4. Las pruebas
 
-(se completa abajo)
+Cambios:
+
+- `scripts/comparar-titulo.sh` y `scripts/comparar-geometria.sh` (los usan `test-psp-titulo`,
+  `-video`, `-texturas-juego` y `-geometria`): `PROBAR_SIN_LIMITE=1` por omisión
+  (`PROBAR_SIN_LIMITE=0` lo apaga) y `dibujar_desde=<cuadro − 10>` en el `ikaruga.cfg`; un
+  `--cfg dibujar_desde=0` posterior vuelve a dibujar todo.
+- `scripts/test-psp-texturas-juego.sh`: pasa `--cfg dibujar_desde=0`, porque su check (a) suma
+  `over_budget` de toda la corrida y la caché tiene que ver todos los renders (solo usa el paso 1).
+- `scripts/test-psp-geometria.sh`: sus dos capturas ya no corren en paralelo (dos PPSSPP a la vez
+  rompen la regla de un solo PPSSPP); en serie y sin limitador tardan menos que antes en paralelo.
+- `scripts/test-psp-igual-pc.sh`: `PROBAR_SIN_LIMITE=1` por omisión y `max_cuadros=HASTA+1`, para que
+  el EBOOT pare al terminar en vez de agotar los `SEGUNDOS` (antes la corrida duraba siempre la cota
+  completa: el EBOOT no paraba). `scripts/probar-ikaruga-ppsspp.sh` ahora también termina al ver
+  `max_cuadros reached` en el log.
+- `scripts/medir-velocidad.sh`: fuerza `PROBAR_SIN_LIMITE=0`; mide igual que antes.
+
+Tiempos (una corrida de cada prueba con el cambio, EBOOT de esta rama, sin otro PPSSPP corriendo
+al arrancar cada una). «Antes» por corrida de PPSSPP son los `psp-tiempo.txt` de la fila 9b
+(`ikaruga-psp-wt/f9b`, mismo código salvo este cambio) y, para `test-psp-video`, de
+`ikaruga-psp-wt/f24`; no volví a correr las pruebas viejas con limitador.
+
+| Prueba | PPSSPP por corrida antes | después | prueba entera después | resultado |
+|---|---|---|---|---|
+| `test-psp-titulo.sh` (2 corridas PSP + PC) | 149 s | 15-16 s | 199 s | (a) 28.43 dB, (b) 9.46 dB, (c) 7.37 dB: pasa |
+| `test-psp-geometria.sh` (2 corridas, cuadro 2600) | 506 / 499 s (en paralelo) | 34 / 33 s (en serie) | 339 s | (a)(b)(c) ok, polígonos 947 = 947 |
+| `test-psp-texturas-juego.sh` (2 corridas, 2600) | 506 / 508 s | 36 / 37 s | 205 s | PASS (a), (b) 17.92 dB (INFO), PASS (c) 10907 rechazos |
+| `test-psp-video.sh` (5 corridas: 2600×2, 1700×2, 1243) | 868, 869, 262, 261, 149 s (f24) | 34, 33, 19, 19, 16 s | 404 s | (a) 25.64/5.16 dB, (b) 27.41/15.81 dB, (c) 28.43 dB: pasa |
+| `test-psp-igual-pc.sh` `HASTA=240` (arranque rápido) | ~330 s (cota `SEGUNDOS`; 338 s medidos sin limitador y sin el corte por `max_cuadros`) | 10 s | 10 s | igual a PC en 60..240 |
+| `test-psp-igual-pc.sh` `HASTA=600` | ~330 s | 13 s | 13 s | igual a PC en 60..600 |
+
+El resto del tiempo de cada prueba de imagen es el lado de PC (ventana Wayland, `--screenshot-at`)
+y la comparación, que este cambio no toca.
+
+Comandos:
+
+```sh
+export PROBAR_DISCO=.../DISCO-real.ISO DREAM_RECOMP=.../dream-recomp
+E=build/psp/ikaruga/EBOOT.PBP J=$DREAM_RECOMP/games/ikaruga/extracted
+B=$DREAM_RECOMP/build-rel/games/ikaruga/ikaruga_boot T=$DREAM_RECOMP/games/ikaruga/ikaruga.toml
+HASTA=240 scripts/test-psp-igual-pc.sh $E $J        # arranque rápido igual a PC
+scripts/test-psp-titulo.sh $E $J $B $T
+scripts/test-psp-geometria.sh $E $J $B $T
+scripts/test-psp-texturas-juego.sh $E $J $B $T
+scripts/test-psp-video.sh $E $J $B $T
+# una captura a mano, sin limitador y sin video hasta 2590:
+mkdir -p build/c; printf 'capturar_en=2600\ndibujar_desde=2590\nrtc_seed=1\n' > build/c/ikaruga.cfg
+PROBAR_SIN_LIMITE=1 PROBAR_CFG=build/c/ikaruga.cfg scripts/probar-ikaruga-ppsspp.sh $E $J 2400 build/c/psp.log
+```
+
+## Qué NO verifiqué y dónde está mi punto ciego
+
+- `test-psp-titulo.sh --todas` no lo corrí (lo corre el orquestador); `test-psp-arranque`, `-rtc`,
+  `-carpeta`, `-vmu`, `-salida-suspension` y `-redondeo` siguen con limitador: no los cambié.
+  `test-psp-salida-suspension` llama a `test-psp-igual-pc` con `test_suspend_at`; con el nuevo
+  `max_cuadros` y sin limitador no lo corrí.
+- Fast-forward depende de que el Tab de `xdotool` llegue a la ventana de PPSSPP en el Xvfb. Si el
+  foco falla, la prueba corre con limitador: sale bien pero lenta, sin aviso. No hay una comprobación
+  automática de que el limitador se apagó (solo el `wall_s`).
+- La igualdad con y sin limitador la comprobé en los cuadros 600 y 2600 con una corrida cada uno; no
+  en los cuadros 1243 y 1700 (en 1243 las pruebas dan los mismos PSNR que la fila 9b:
+  28.43 / 9.46 / 7.37 dB).
+- `dibujar_desde`: comprobé captura idéntica solo en el cuadro 2600. En otros cuadros, una imagen que
+  la caché de una corrida completa conservara y que ya no coincide con la VRAM podría dar otra
+  imagen; por diseño se decodifica de la VRAM del momento, pero no lo medí.
+- Los tiempos «antes» son de otras filas, no de esta rama con limitador (salvo 600 y 2600 del paso
+  1). Otros agentes corrían PPSSPP en la misma máquina; esperé a que no hubiera ninguno antes de cada
+  prueba, pero no controlé la carga del host.
+- El paso 3 (estado guardado) es solo una estimación hecha leyendo las cabeceras; no compilé nada.
