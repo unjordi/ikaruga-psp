@@ -214,3 +214,82 @@ está detrás y se dibuja después gana. Es z-fighting probable, no visto (no co
   o, más barato, calcular `zmin/zmax` sin los planos de HUD/fondo (1/w ≥ 1) y darles un escalón
   aparte. Se cierra con el render 2000 sin escalones compartidos entre polígonos que se tapan
   (contarlo con `tools/analizar-ta.cpp`) y la captura contra Flycast.
+
+## 36. El centro del capítulo 1 a ≈16 dB
+
+**Pregunta.** ¿Qué tiene el centro del cuadro 2600 que la PSP no dibuja igual?
+
+**Cómo lo medí.**
+
+1. La captura de PSP más reciente del cuadro 2600 (`psp-2600.png` de la verificación de video
+   de develop, la misma de los 15,7 dB) contra capturas de PC de **varios cuadros presentados
+   alrededor** (`--window --unthrottled --present-mode immediate --screenshot-at S`,
+   S = 2596…2602, escaladas a 480×272 con `BOX` como `comparar-titulo.sh`), centro = x 105–375.
+2. Descomposición del error: PSNR tras desenfoque gaussiano (lo que queda es baja frecuencia:
+   color/brillo de zonas) y por regiones.
+3. Flycast: `scripts/capturar-flycast.sh copia.chd --segundos 55 --fps 10` (sobre una copia del CHD) y
+   PSNR del PC 2600 contra los cuadros 428–441 de Flycast.
+4. Del TA del render capturado (`tools/analizar-ta.cpp` con `ANALIZAR_TA_POLIGONOS=1`): qué
+   polígonos tienen color offset ≠ 0 y cuáles tienen coordenadas fuera del rango que el GE acepta en
+   modo through (±2048 desde el centro, tras escalar a 480×272).
+
+**Resultado.**
+
+| PC, cuadro presentado (cuadro del guest) | centro PC vs PSP |
+|---|---|
+| 2596 (2598) | 13,77 dB |
+| 2598 (2600), el que usa la prueba | 15,15–15,74 dB |
+| **2599 (2601)** | **19,04 dB** |
+| 2600 (2602) | 15,74 dB |
+| 2601 (2603) | 14,28 dB |
+
+- **≈3,3 dB del «16 dB» son desfase de un cuadro**: la prueba compara la PSP con un cuadro de PC que
+  no es el mismo instante (en este tramo el escenario se mueve rápido y 1 cuadro de diferencia ya
+  baja de 19 a 15,7 dB). El mismo PC con tarjeta (`--vmu`, como la PSP) da los mismos números: el
+  desfase no es el render de menos del paso 37, es cómo `--screenshot-at` cuenta cuadros
+  *presentados* (2 menos que los del guest) frente a `capturar_en`, que cuenta cuadros del guest.
+- Alineado (19,04 dB), el error que queda es **mayormente de alta frecuencia**: tras desenfoque de
+  radio 2 el centro sube a 23,8 dB y la baja frecuencia es solo el 33 % del error. Por regiones:
+  estructura de la derecha 52 % del error (19,2 dB), cielo con nubes 35 % (17,0 dB), nave 4 %. El
+  modelo de visión marca además un reflejo claro en la parte alta de la estructura que en la PSP
+  sale mate.
+- **Color offset**: en este render solo 68 polígonos opacos tienen offset ≠ 0, de ≤ 85 px² cada
+  uno (detalles de la nave, offset `ff000000`, es decir solo el alfa de niebla de vértice, RGB 0):
+  **no explica el centro**. En renders posteriores sí pesa (733 polígonos en 4500, paso 44).
+- **Modifier volumes**: sin efecto (paso 43). **Filtrado**: la PSP usa `GU_LINEAR` donde el PVR pide
+  bilineal (filtro 1 en todos los polígonos texturizados de escena), pero sin mipmaps en el GE
+  (473 polígonos opacos con mip en 2600): una textura minificada sin mip sale con más aliasing →
+  alta frecuencia, encaja con lo medido.
+- **Polígonos enormes**: 172 tiras del render (73 OP 565, 73 TR PAL4 de las nubes, 26 TR más) tienen
+  vértices fuera de ±2048 px una vez escalados. El GE en modo through no recorta en guarda; si las
+  descarta o las deforma, faltaría parte del cielo/nubes (35 % del error). Hipótesis no comprobada.
+- **Flycast** no sirve hoy para aislarlo en este tramo: el mejor cuadro de Flycast queda a 17,2 dB
+  (centro 14,5) del PC, por el desfase de pulsaciones ya documentado en `docs/referencia-flycast.md`
+  (diferencia 5); no hay el mismo instante en las dos series.
+
+**Experimento listo (exige PPSSPP; no lo corrí).** Un render con traza y su lista:
+
+```
+# ikaruga.cfg: capturar_en=2600, pulsar=$P, rtc_seed=1, trazar=1, volcar_ta=1
+PROBAR_CFG=ikaruga.cfg scripts/probar-ikaruga-ppsspp.sh build/psp/EBOOT.PBP <juego> 6000 psp.log
+grep '^strip' psp.log > tiras-psp.txt
+ANALIZAR_TA_POLIGONOS=1 build/host/analizar-ta ta-2600.bin | grep '^P' > tiras-pc.txt
+```
+
+y comparar contra el PC del cuadro *presentado 2599*. Contraprueba de las dos hipótesis, cada una por
+separado en `psp/stubs/video.cpp` (`video_draw_frame`): (i) no dibujar las tiras con vértices fuera
+de ±2048 — si el centro no cambia, no son ellas; (ii) forzar `GU_NEAREST` — si el centro baja en la
+estructura, el filtrado/mip es la causa.
+
+**Propuesta para el plan.** (c) **Partir el 36:**
+
+- 36a. Las comparaciones de imagen contra PC alinean el instante: `comparar-titulo.sh` pide a PC el
+  cuadro presentado que corresponde al cuadro del guest de la PSP (hoy `--screenshot-at N`, debería
+  ser el que reporta `guest frame N+1`, o buscar el mejor de N−2…N+2 y reportarlo). Sube el centro de
+  15,7 a 19,0 dB sin tocar el port.
+- 36b. Polígonos fuera del rango del GE: recortarlos en `video_draw_frame` (recorte contra la banda
+  de guarda, o pasar esas tiras a modo 3D con el clipper del GE). Cierra con el experimento de arriba.
+- 36c. Mipmaps en el GE para las texturas con mip (`texture_psp.cpp` sube los niveles,
+  `sceGuTexLevelMode`): solo si (ii) muestra que el filtrado es la causa.
+- 36d (reflejo de la estructura): queda pendiente de 36b/36c; si sobrevive, es el color offset del
+  paso 44a.

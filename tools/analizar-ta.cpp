@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -63,6 +64,18 @@ int main(int argc, char** argv) {
                 zs.push_back(v.z);
             }
             if (offset_nonzero) add(L + ".offset_color_nonzero");
+            if (std::getenv("ANALIZAR_TA_POLIGONOS")) {  // one line per strip: list, bbox, state
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (u32 i = 0; i < p.count; ++i) {
+                    const auto& v = fr.vertices[p.first + i];
+                    x0 = std::min(x0, v.x); x1 = std::max(x1, v.x);
+                    y0 = std::min(y0, v.y); y1 = std::max(y1, v.y);
+                }
+                std::printf("P %s bbox %.0f,%.0f-%.0f,%.0f area %.0f blend %u/%u fog %u tex %u fmt %u off %d base0 %08x off0 %08x tcw %08x\n",
+                    L.c_str(), x0, y0, x1, y1, (x1 - x0) * (y1 - y0), (tsp >> 29) & 7, (tsp >> 26) & 7,
+                    (tsp >> 22) & 3, (pcw >> 3) & 1, (tcw >> 27) & 7, offset_nonzero ? 1 : 0,
+                    fr.vertices[p.first].base, fr.vertices[p.first].offset, tcw);
+            }
             {  // affine-vs-perspective proxy: spread of 1/w inside one strip
                 float lo = 1e30f, hi = 0;
                 for (u32 i = 0; i < p.count; ++i) {
