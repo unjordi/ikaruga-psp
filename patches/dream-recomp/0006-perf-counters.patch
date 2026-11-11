@@ -1,0 +1,114 @@
+Cheap event counters for the per-frame log: FIPR/FTRV/FMAC executed, NonLocalReturn
+thrown, scheduler callbacks run. Compiled in only with -DDREAM_PERF_COUNTERS; otherwise
+DREAM_PERF_INC expands to nothing and the code is unchanged.
+
+diff --git a/runtime/include/dream/runtime/perf.h b/runtime/include/dream/runtime/perf.h
+new file mode 100644
+index 0000000..a10ce3d
+--- /dev/null
++++ b/runtime/include/dream/runtime/perf.h
+@@ -0,0 +1,24 @@
++// Cheap event counters for the PSP build's per-frame log (DREAM_PERF_COUNTERS).
++// Plain increments on a global; the host reads and resets them. Without the macro every
++// DREAM_PERF_INC expands to nothing.
++#pragma once
++
++#include <cstdint>
++
++namespace dream::perf {
++
++struct Counters {
++    std::uint32_t fipr = 0, ftrv = 0, fmac = 0;  // SH-4 vector/fused FPU ops executed
++    std::uint32_t throws = 0;                    // NonLocalReturn thrown
++    std::uint32_t sched_events = 0;              // scheduler callbacks run
++};
++
++extern Counters counters;
++
++}  // namespace dream::perf
++
++#ifdef DREAM_PERF_COUNTERS
++#define DREAM_PERF_INC(field) (++::dream::perf::counters.field)
++#else
++#define DREAM_PERF_INC(field) ((void)0)
++#endif
+diff --git a/runtime/include/dream/runtime/sh4/ops.h b/runtime/include/dream/runtime/sh4/ops.h
+index 2c8ccb4..e972edb 100644
+--- a/runtime/include/dream/runtime/sh4/ops.h
++++ b/runtime/include/dream/runtime/sh4/ops.h
+@@ -8,6 +8,7 @@
+ 
+ #include "dream/runtime/fenv.h"
+ #include "dream/runtime/memory.h"
++#include "dream/runtime/perf.h"
+ #include "dream/runtime/sh4/ctx.h"
+ 
+ namespace dream::sh4 {
+@@ -313,6 +314,7 @@ inline std::uint32_t ftrc(double d) noexcept {
+ // FMAC: FRn = FR0 * FRm + FRn with a single rounding (the SH-4 FMAC is a fused unit). Recorded
+ // here as the one place the choice lives (ADR 16); WP1.5 checks it against the interpreter.
+ inline float fmac(float fr0, float frm, float frn) noexcept {
++    DREAM_PERF_INC(fmac);
+     return std::fmaf(fr0, frm, frn);
+ }
+ 
+@@ -338,6 +340,7 @@ inline void fsca(Ctx& c, unsigned n) noexcept {
+ // reference (Flycast) evaluation and it is contraction-proof, since an FMA of an exact product
+ // equals the separate multiply and add.
+ inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
++    DREAM_PERF_INC(fipr);
+     const float* a = &c.fr[n];
+     const float* b = &c.fr[m];
+     double d = static_cast<double>(a[0]) * b[0];
+@@ -350,6 +353,7 @@ inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
+ // FTRV XMTRX,FVn: FV[n] = XMTRX * FV[n], XMTRX being the back bank as a 4x4 column-major matrix.
+ // Same double accumulation as FIPR, one row at a time, left to right.
+ inline void ftrv(Ctx& c, unsigned n) noexcept {
++    DREAM_PERF_INC(ftrv);
+     const float* v = &c.fr[n];
+     const float x = v[0], y = v[1], z = v[2], w = v[3];
+     const float* xm = c.xf;
+diff --git a/runtime/src/sched/scheduler.cpp b/runtime/src/sched/scheduler.cpp
+index e9c8dcc..e1fa0b2 100644
+--- a/runtime/src/sched/scheduler.cpp
++++ b/runtime/src/sched/scheduler.cpp
+@@ -2,6 +2,12 @@
+ 
+ #include <utility>
+ 
++#include "dream/runtime/perf.h"
++
++namespace dream::perf {
++Counters counters;
++}  // namespace dream::perf
++
+ namespace dream::sched {
+ 
+ int Scheduler::add(std::string name, Callback cb) {
+@@ -38,6 +44,7 @@ void Scheduler::advance_to(std::uint64_t target) {
+         if (now_ < best)
+             now_ = best;
+         events_[idx].deadline = kNever;  // the callback may re-arm
++        DREAM_PERF_INC(sched_events);
+         events_[idx].cb(now_, late);
+     }
+     if (target > now_)
+diff --git a/runtime/src/sh4/abi_bare.cpp b/runtime/src/sh4/abi_bare.cpp
+index 2930c55..2df9722 100644
+--- a/runtime/src/sh4/abi_bare.cpp
++++ b/runtime/src/sh4/abi_bare.cpp
+@@ -1,5 +1,6 @@
+ // Harness implementation of the emitted-code ABI: a function table, direct calls, and hard
+ // failures for anything that needs the real runtime (exceptions, interrupts, untranslated code).
++#include "dream/runtime/perf.h"
+ #include <algorithm>
+ #include <cstdio>
+ #include <stdexcept>
+@@ -224,6 +225,7 @@ void nonlocal_return(Ctx& c, ::dream::Memory&, std::uint32_t pc) {
+         std::fprintf(stderr, "nonlocal: rts from pc 0x%08x to 0x%08x (r15 0x%08x)\n", c.pc, pc,
+                      c.r[15]);
+     c.pc = pc;
++    DREAM_PERF_INC(throws);
+     throw NonLocalReturn{pc};
+ }
+ 
