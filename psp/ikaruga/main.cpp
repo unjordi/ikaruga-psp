@@ -512,10 +512,8 @@ int main(int argc, char** argv) {
             ++texture_renders;
             texture_target = pvr.reg(0x060) & 0x00FFFFFFu;
         }
-        // dibujar_desde: renders before that frame are neither decoded nor drawn. The decoder is
-        // reset per render and the texture cache is still empty at the first drawn render, so
-        // every image is decoded from the VRAM of that moment; only the cache counters and its
-        // eviction history differ from a run that draws from frame 0.
+        // dibujar_desde: earlier renders are neither decoded nor drawn; the first drawn render
+        // decodes every texture from the VRAM of that moment (docs/pruebas-rapidas.md §2).
         if (sys.spg.frames() < cfg.draw_from)
             return;
         decoder.reset();
