@@ -80,10 +80,12 @@ for v in "${variants[@]}"; do
   rm -rf "$dir/obj/rt" "$dir/obj/host" "$dir/EBOOT.PBP" "$dir/PARAM.SFO"
   # make does not track flags: generated objects are reused only if built with the same OPT_GEN.
   # The generated units inline ops.h, so the FPU mode is part of their key too.
-  if [[ "$(cat "$dir/opt_gen.txt" 2>/dev/null || true)" != "$opt_gen fpu_double=$FPU_DOUBLE soft_daz=$SOFT_DAZ" ]]; then
+  # make sees no header dependencies either: a patch to an inlined runtime header changes the key.
+  key="$opt_gen fpu_double=$FPU_DOUBLE soft_daz=$SOFT_DAZ patches=$(cat "$REPO"/patches/dream-recomp/*.patch | md5sum | cut -c1-12)"
+  if [[ "$(cat "$dir/opt_gen.txt" 2>/dev/null || true)" != "$key" ]]; then
     rm -rf "$dir/obj/gen" "$dir/ikaruga.elf"
   fi
-  echo "$opt_gen fpu_double=$FPU_DOUBLE soft_daz=$SOFT_DAZ" > "$dir/opt_gen.txt"
+  echo "$key" > "$dir/opt_gen.txt"
   targets=(ikaruga.elf)
   [[ $v != O2 ]] && targets+=(EBOOT.PBP)
   docker run --rm --user "$(id -u):$(id -g)" \

@@ -60,7 +60,7 @@ diff -ru base/runtime/include/dream/runtime/sh4/ctx.h new/runtime/include/dream/
      // calls deliver_irq, which runs the scheduler up to `cycles`, delivers interrupts, and sets the
 diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/runtime/sh4/ops.h
 --- a/runtime/include/dream/runtime/sh4/ops.h	2026-11-11 02:53:07.334051450 -0600
-+++ b/runtime/include/dream/runtime/sh4/ops.h	2026-11-11 02:56:04.426670386 -0600
++++ b/runtime/include/dream/runtime/sh4/ops.h	2026-11-11 03:49:40.764184594 -0600
 @@ -217,7 +217,7 @@
  // FRCHG: swap the two FP banks.
  inline void frchg(Ctx& c) noexcept {
@@ -70,7 +70,7 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
          c.fr[i] = c.xf[i];
          c.xf[i] = tmp;
      }
-@@ -239,6 +239,19 @@
+@@ -239,6 +239,72 @@
      std::memcpy(&u, &f, 4);
      return u;
  }
@@ -87,10 +87,63 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
 +#else
 +inline float ftz(float x) noexcept { return x; }
 +#endif
++#if DREAM_SOFT_DAZ
++// x86 SSE NaN results, for the double FIPR/FTRV/FMAC when a result is NaN: the first NaN operand
++// in operand order, quieted, or the default NaN 0xFFC00000 for inf*0 and inf-inf. The PSP's
++// soft-double (libgcc fp-bit) gives a product of NaNs the XOR of the signs instead.
++namespace x86fp {
++struct V {
++    bool nan;
++    std::uint32_t bits;  // when nan
++    double d;            // otherwise
++};
++inline V in(float f) noexcept {
++    std::uint32_t u;
++    std::memcpy(&u, &f, 4);
++    if ((u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu))
++        return V{true, u | 0x00400000u, 0.0};
++    return V{false, 0, static_cast<double>(f)};
++}
++constexpr V kDefaultNan{true, 0xFFC00000u, 0.0};
++inline V mul(V a, V b) noexcept {
++    if (a.nan) return a;
++    if (b.nan) return b;
++    if ((std::isinf(a.d) && b.d == 0.0) || (a.d == 0.0 && std::isinf(b.d))) return kDefaultNan;
++    return V{false, 0, a.d * b.d};
++}
++inline V add(V a, V b) noexcept {
++    if (a.nan) return a;
++    if (b.nan) return b;
++    if (std::isinf(a.d) && std::isinf(b.d) && std::signbit(a.d) != std::signbit(b.d))
++        return kDefaultNan;
++    return V{false, 0, a.d + b.d};
++}
++inline float out(V v) noexcept {
++    if (!v.nan) return ftz(static_cast<float>(v.d));
++    float f;
++    std::memcpy(&f, &v.bits, 4);
++    return f;
++}
++// a0*b0 + a1*b1 + a2*b2 + a3*b3, left to right, a first in each product.
++inline float dot4(const float* a, const float* b) noexcept {
++    V d = mul(in(a[0]), in(b[0]));
++    for (int i = 1; i < 4; ++i) d = add(d, mul(in(a[i]), in(b[i])));
++    return out(d);
++}
++// glibc fmaf on x86-64 (vfmadd213ss): NaN operands in the order x, y, z.
++inline float fma(float x, float y, float z) noexcept {
++    const V a = in(x), b = in(y), c = in(z);
++    if (a.nan) return out(a);
++    if (b.nan) return out(b);
++    if (c.nan) return out(c);
++    return out(kDefaultNan);
++}
++}  // namespace x86fp
++#endif
  inline float u2f(std::uint32_t u) noexcept {
      float f;
      std::memcpy(&f, &u, 4);
-@@ -272,13 +285,13 @@
+@@ -272,13 +338,13 @@
  
  // 64-bit pair moves (FPSCR.SZ = 1). The register field's low bit selects the back bank (XDn).
  inline void fmov_pair_load(Ctx& c, unsigned field, std::uint64_t v) noexcept {
@@ -106,16 +159,21 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
      const unsigned n = field & ~1u;
      return (static_cast<std::uint64_t>(f2u(bank[n])) << 32) | f2u(bank[n + 1]);
  }
-@@ -334,7 +347,7 @@
+@@ -334,7 +400,13 @@
  // here as the one place the choice lives (ADR 16); WP1.5 checks it against the interpreter.
  inline float fmac(float fr0, float frm, float frn) noexcept {
      DREAM_PERF_INC(fmac);
--    return std::fmaf(fr0, frm, frn);
-+    return ftz(std::fmaf(fr0, frm, frn));
++#if DREAM_SOFT_DAZ
++    const float r = std::fmaf(fr0, frm, frn);
++    if (std::isnan(r)) return x86fp::fma(fr0, frm, frn);
++    return ftz(r);
++#else
+     return std::fmaf(fr0, frm, frn);
++#endif
  }
  #endif  // DREAM_FPU_DOUBLE
  
-@@ -359,8 +372,8 @@
+@@ -359,8 +431,8 @@
  // FIPR FVm,FVn: FR[n+3] = ((a0*b0 + a1*b1) + a2*b2) + a3*b3, every product and sum in float.
  inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
      DREAM_PERF_INC(fipr);
@@ -126,7 +184,7 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
      float d = a[0] * b[0];
      d += a[1] * b[1];
      d += a[2] * b[2];
-@@ -371,9 +384,9 @@
+@@ -371,9 +443,9 @@
  // FTRV XMTRX,FVn: FV[n] = XMTRX * FV[n] in float, one row at a time, same order as FIPR.
  inline void ftrv(Ctx& c, unsigned n) noexcept {
      DREAM_PERF_INC(ftrv);
@@ -138,7 +196,7 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
      float r[4];
      for (unsigned i = 0; i < 4; ++i) {
          float d = xm[i] * x;
-@@ -391,28 +404,28 @@
+@@ -391,28 +463,46 @@
  // equals the separate multiply and add.
  inline void fipr(Ctx& c, unsigned m, unsigned n) noexcept {
      DREAM_PERF_INC(fipr);
@@ -151,6 +209,13 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
      d += static_cast<double>(a[2]) * b[2];
      d += static_cast<double>(a[3]) * b[3];
 -    c.fr[n + 3] = static_cast<float>(d);
++#if DREAM_SOFT_DAZ
++    if (std::isnan(d)) {
++        const float fa[4] = {a[0], a[1], a[2], a[3]}, fb[4] = {b[0], b[1], b[2], b[3]};
++        c.fr[n + 3] = x86fp::dot4(fa, fb);
++        return;
++    }
++#endif
 +    c.fr[n + 3] = ftz(static_cast<float>(d));
  }
  
@@ -168,12 +233,22 @@ diff -ru base/runtime/include/dream/runtime/sh4/ops.h new/runtime/include/dream/
          r[i] = static_cast<double>(xm[i]) * x + static_cast<double>(xm[i + 4]) * y +
                 static_cast<double>(xm[i + 8]) * z + static_cast<double>(xm[i + 12]) * w;
      }
--    for (unsigned i = 0; i < 4; ++i) c.fr[n + i] = static_cast<float>(r[i]);
-+    for (unsigned i = 0; i < 4; ++i) c.fr[n + i] = ftz(static_cast<float>(r[i]));
++#if DREAM_SOFT_DAZ
++    for (unsigned i = 0; i < 4; ++i) {
++        if (std::isnan(r[i])) {
++            const float row[4] = {xm[i], xm[i + 4], xm[i + 8], xm[i + 12]}, col[4] = {x, y, z, w};
++            c.fr[n + i] = x86fp::dot4(row, col);
++        } else {
++            c.fr[n + i] = ftz(static_cast<float>(r[i]));
++        }
++    }
++#else
+     for (unsigned i = 0; i < 4; ++i) c.fr[n + i] = static_cast<float>(r[i]);
++#endif
  }
  #endif  // DREAM_FPU_DOUBLE
  
-@@ -421,7 +434,7 @@
+@@ -421,7 +511,7 @@
      v &= 0x003FFFFFu;
      if ((v ^ c.fpscr) & FPSCR_FR) {
          for (int i = 0; i < 16; ++i) {
