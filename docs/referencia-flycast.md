@@ -138,6 +138,15 @@ Lo que **sí** se ve como en el emulador: título (logo, PRESS START, laterales 
 título y SELECT GAME MODE, todo por encima de 25 dB y 0,89 de SSIM; el texto del inicio del cap. 1
 y el cielo con la estructura en diagonal (centro 27,38 dB / 0,945).
 
+## Pruebas corridas en esta fila
+
+- `capturar-flycast.sh` y `comparar-flycast.sh`, con los números de arriba.
+- Arranque rápido igual a PC hasta el cuadro 240 (`HASTA=240 test-psp-igual-pc.sh`, como
+  herramienta de depuración, con el mismo EBOOT `float`): `write_hash` igual en 60, 120, 180 y 240.
+  El único cambio a código existente es `PROBAR_GRABAR` en `probar-ikaruga-ppsspp.sh`, que sin la
+  variable no cambia nada.
+- La batería completa (`test-psp-titulo.sh --todas`) no la corrí: la corre el orquestador.
+
 ## Qué NO verifiqué y dónde está mi punto ciego
 
 - Las ventanas de cada escena las puse yo a ojo; el mejor-SSIM dentro de ellas es objetivo, las
