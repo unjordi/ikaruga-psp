@@ -581,3 +581,98 @@ paneles) aplica a Steam, no al Dreamcast: en Dreamcast TATE es pantalla completa
   que usó Flycast también está ahí (fuera del repo, gitignored).
 - **Rama**: el arnés me puso en `axon/reglas-fijas-de-este-proyecto-ap-ygbpge` (avanzada a
   `origin/develop` 24d2d31), no en `docs/investigacion-pendientes` como pedía la tarea.
+
+## Revisión de los 85 pasos del plan, uno por uno
+
+Esta investigación contesta solo las preguntas abiertas de arriba. Para que el plan entero quede
+revisado, esta tabla da a cada paso su estado, si esta investigación lo toca y con qué evidencia.
+«Sin cambio» quiere decir que el paso no era una pregunta abierta y no encontré nada que lo
+contradiga.
+
+| paso | estado en el plan | qué dice esta investigación |
+|---|---|---|
+| 1 elegir recompilador (dream-recomp) | ✅ | sin cambio; todo lo de aquí corre sobre dream-recomp 51ca276 |
+| 2 receta reproducible PC, sha256 del generado | ✅ | sin cambio; usé el `gen/` del PC ya compilado (§23), no lo regeneré |
+| 3 toolchain PSP en Docker, EBOOT idéntico | ✅ | no aplica: no compilé EBOOT |
+| 4 generado + runtime compilan para el Allegrex | ✅ | no aplica: no compilé para la PSP |
+| 5 medición en PC (memoria 50 %, AICA 17 %, vblank 58 %) | ✅ | el reparto del AICA se reusa en §54; el muestreo de §56 confirma que `kmWaitVBlank` domina (60–97 % por ventana) |
+| 6 pieza 13, 333 MHz y VFPU | ✅ | no aplica (sin PPSSPP) |
+| 7 piezas 8, 10, 11, archivos | ✅ | sin cambio |
+| 8 idle-skip de `kmWaitVBlank` | ✅ | confirmado: 2 804 383 saltos al cuadro 2600; su cabeza `0x0C0370BA` es además el punto de volcado del §23 |
+| 9 video mínimo, 947 polígonos al 2600 | ✅ | confirmado: el TA del 2600 da 947 polígonos (`contar-poligonos`) |
+| 10 texturas twiddled, VQ, paletas | ✅ | confirmado que el juego usa VQ, PAL4 y PAL8 (§40–48) |
+| 11 correctitud (redondeo, RTC, HOME, VMU…) | ✅ | la VMU que la PSP siempre conecta explica el render de menos (§37) |
+| 12 disco real `DISCO.ISO` | ✅ | sin cambio |
+| 13 velocidad, `float` en FIPR/FTRV/FMAC | ✅ | relacionado con §47 (denormales); sin cambio |
+| 14 recorte de usuario y niebla de tabla | ✅ | confirmado: solo niebla 0 (tabla) y 2; recorte solo modos 0 y 2 (§40–48) |
+| 15 receta de primer uso | ✅ | no aplica |
+| 16 `.gitignore` | ✅ | comprobado de paso: `build/investigacion-evidencia/` queda ignorado |
+| 17 herramientas contra Flycast | ✅ | usadas en §36; limitadas por el desfase de pulsaciones |
+| 18 arreglo de denormales del build `double` | 🔄 | no tocado (en curso en otra rama); ver §47 |
+| 19 controles | 🔄 | no tocado; el mapeo TATE sigue haciendo falta (§50) |
+| 20 PPSSPP sin limitador | 🔄 | no tocado (sin PPSSPP) |
+| 21 `dibujar_desde=N` | 🔄 | no tocado |
+| 22 estado guardado: ¿el runtime serializa? | 🔄 | no tocado; su conclusión condiciona el 23 |
+| 23 volcar y reanudar el estado | ⬜ | **contestado**: punto seguro `0x0C0370BA`; partir en 23a/b/c (§23) |
+| 24 `probar-ikaruga-ppsspp.sh` falla sin `PROBAR_DISCO` | ⬜ | sin cambio |
+| 25 `scripts/bateria.sh` | ⬜ | sin cambio |
+| 26 build solo variante mix | ⬜ | sin cambio |
+| 27 comparadores encuentran el socket de Wayland | ⬜ | sin cambio; en esta máquina el único socket es `wayland-1` |
+| 28 idle-skip barato [A8] | ⬜ | sin cambio |
+| 29 camino rápido a la RAM [A4] | ⬜ | sin cambio |
+| 30 memoria real del EBOOT | ⬜ | no aplica (sin PPSSPP) |
+| 31 limpieza del código | ⬜ | sin cambio |
+| 32 limpieza de los docs | ⬜ | añadir este documento al índice cuando se haga |
+| 33 `scripts/armar-docs.sh` | ⬜ | sin cambio |
+| 34 batería de imagen contra Flycast | ⬜ | ojo: el desfase de un cuadro (§36) y la VMU (§37) afectan a las comparaciones |
+| 35 develop contra Flycast escena por escena | ⬜ | sin cambio; es donde se comprueban 36b, 40 y 41 |
+| 36 centro del capítulo 1 | ⬜ | **contestado en parte**: partir en 36a–d (§36) |
+| 37 render de menos | ⬜ | **contestado**: borrar (§37) |
+| 38 render a textura | ⬜ | **contestado**: no en el capítulo 1 (§38) |
+| 39 dibujar a textura | ⬜ | borrar (§38) |
+| 40 profundidad 16 bits lineal | ⬜ | **contestado**: rango 5,4·10⁻⁵…1; trabajo concreto (§40–48) |
+| 41 perspectiva en modo through | ⬜ | **contestado**: sí hay tiras con 1/w ×3; medir y subdividir (§40–48) |
+| 42 culling | ⬜ | **contestado**: borrar |
+| 43 modifier volumes | ⬜ | **contestado**: borrar |
+| 44 color offset y clamp | ⬜ | **contestado**: offset sí (44a), clamp borrar |
+| 45 niebla | ⬜ | **contestado**: reducir |
+| 46 texturas | ⬜ | **contestado**: reducir a PAL8 y a leer el log |
+| 47 denormales en `float` | ⬜ | **contestado**: borrar como paso propio (§47) |
+| 48 PRESS START y recorte modo 3 | ⬜ | **contestado**: modo 3 borrar; parpadeo al 85 |
+| 49 referencia de Steam | ⬜ | no tocado; matiz: el 3:4 con paneles es de Steam, en Dreamcast TATE es pantalla completa (§50) |
+| 50 TATE en el PC | ⬜ | **contestado**: borrar (§50) |
+| 51 TATE en la PSP | ⬜ | reescribir más simple (§50) |
+| 52 microbenchmark [T3] | ⬜ | sin cambio |
+| 53 build de entrega sin hash ni contadores [C10] | ⬜ | sin cambio |
+| 54 costo del AICA | ⬜ | **contestado**: fundir en 55 (§54) |
+| 55 AICA reducido [A7] | ⬜ | concretar en 55a/55b (§54) |
+| 56 otros bucles de espera | ⬜ | **contestado**: solo GD-ROM, 3,7 %; reducir (§56) |
+| 57 SPG con menos eventos [A6a] | ⬜ | sin cambio |
+| 58 store queues hacia el TA [A5] | ⬜ | sin cambio; dato: 19,7 M ráfagas, 0 fallos de UTLB al cuadro 2600 |
+| 59 GE en paralelo [B1] | ⬜ | sin cambio |
+| 60 estado del GE solo cuando cambia [B3] | ⬜ | sin cambio; dato: las OP del capítulo 1 usan casi todas el mismo estado (565, bilineal, modulate alpha, GEQUAL) |
+| 61 decodificar el TA una vez [B5] | ⬜ | sin cambio |
+| 62 vértices de 16 bits [B7] | ⬜ | ojo con el §40: la profundidad ya va justa en 16 bits; ver si x/y caben en coordenadas de 16 bits (hay vértices fuera de ±2048, §36) |
+| 63 framebuffers de 16 bits [B2] | ⬜ | sin cambio |
+| 64 texturas a 16 bits [B6] | ⬜ | dato: paleta en 4444 (`PAL_RAM_CTRL` = 2) y texturas 565/1555/4444, ya de 16 bits en origen |
+| 65 abaratar la pasada de niebla | ⬜ | dato: la niebla de tabla afecta a 473–1412 OP por render |
+| 66 ritmo a 60 Hz | ⬜ | sin cambio |
+| 67 higiene del build [A14] | ⬜ | sin cambio |
+| 68 -O2 en funciones calientes [A10] | ⬜ | dato: el muestreo de §56 da las calientes del capítulo 1 (`njCnkEasyVertexVN`, `njCnkEasyTexture`, `njCnkEasyMultiVertexVN`…) |
+| 69 contador de ciclos de 32 bits [A11] | ⬜ | sin cambio |
+| 70 quitar ramas `FPSCR.PR` [A12] | ⬜ | sin cambio |
+| 71 audio | ⬜ | **contestada su condición**: el código del driver no cambia en ARAM (§71) |
+| 72 recorrer capítulos 2–5 | ⬜ | se le añaden comprobaciones: `texture_renders` = 0, `--dump-aram`, `--sample` en pausa y cambio de capítulo |
+| 73 VMU desde `.TMP` | ⬜ | sin cambio |
+| 74 `DISCO.ISO` con un comando | ⬜ | sin cambio |
+| 75 empaquetado | ⬜ | sin cambio |
+| 76 texturas HD de Steam | ⬜ | sin cambio |
+| 77 instrucciones de custom firmware | ⬜ | no aplica |
+| 78 primer arranque en PSP-3001 | ⬜ | no aplica |
+| 79 sonda de redondeo en hardware [C13] | ⬜ | no aplica |
+| 80 HOME y suspensión reales | ⬜ | no aplica |
+| 81 disco por bloques [C8] | ⬜ | sin cambio; dato: 5822 sectores leídos hasta el cuadro 2600 |
+| 82 riesgos en hardware | ⬜ | recibe el riesgo de la pasada EQUAL (del 45) y las coordenadas fuera de ±2048 (§36) |
+| 83 velocidad en la consola | ⬜ | no aplica |
+| 84 caché de instrucciones y scratchpad [B10, B11] | ⬜ | no aplica |
+| 85 red de pruebas completa | ⬜ | recibe: PC con `--vmu` en las comparaciones (§37) y la cobertura del parpadeo de PRESS START (§48) |
