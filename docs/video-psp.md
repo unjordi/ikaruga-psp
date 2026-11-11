@@ -113,3 +113,15 @@ ok: 5 distinct guest PCs over 7 log lines                   # test-psp-arranque.
   píxeles no cambia el veredicto (27 vs 16 dB), pero no lo barrí.
 - **Costo**: la niebla duplica el tiempo de dibujo en escenas con niebla; no medí el efecto en la
   velocidad total del juego.
+
+## El título tras 6b/6c (`scripts/test-psp-titulo.sh $E $G $B $C`, mismo EBOOT)
+
+| prueba | PSNR | error medio r/g/b | antes (titulo-psp.md) |
+|---|---|---|---|
+| (a) PSP 1243 vs PC 1243, con texturas | 28,43 dB | 3,86 / 3,04 / 2,69 | igual |
+| (b) igual con `texturas=0` | 9,46 dB (18,97 bajo a) | 45,24 / 61,07 / 72,93 | igual |
+| (c) PSP 1243 vs PC 800 (logo) | 7,37 dB | 91,76 / 75,56 / 65,56 | igual |
+
+Las 8 texturas del log `texture:` del cuadro 1243 son las mismas de la tabla de titulo-psp.md
+(565 512×1024 → 5650 512×512; 2× 565 256×128; 2× 1555 512×32; 2× PAL4 256×128 y 1× PAL4 64×128
+→ 4444). En el título `fogged 0`: no hay niebla, y el render sale idéntico al de antes.
