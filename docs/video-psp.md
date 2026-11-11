@@ -3,11 +3,11 @@
 Continúa `docs/titulo-psp.md`. Todo medido en PPSSPP con el EBOOT de la variante mix
 (`scripts/build-psp-ikaruga.sh <dr-idle>/build-rel/games/ikaruga/gen --variantes=mix`, sin
 `DREAM_RECOMP`; imagen 14,81 MB + guest 28,1 MB = 42,91 MB de ~52 MB), disco
-`PROBAR_DISCO=.../f8/build/DISCO-real.ISO`, y contra `ikaruga_boot` de `~/code/ajenos/dr-idle`.
+`PROBAR_DISCO=.../DISCO-real.ISO`, y contra Flycast con el mismo disco (`docs/referencia-flycast.md`).
 Pulsaciones (las de `test-psp-geometria.sh`):
 `start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200`.
 
-## 6b: columnas laterales en el capítulo 1 (cuadro 2600)
+## 6b: columnas laterales en el capítulo 1 (cuadro 2350)
 
 **Causa.** Ikaruga dibuja el escenario con el recorte de usuario de la PCW (`tile_clip` 2, «solo
 dentro»), con el rectángulo del campo de juego. La PSP lo ignoraba y el escenario se veía bajo las
@@ -20,23 +20,23 @@ y va a `sceGuScissor`. Modo 3 («solo fuera») dibuja la tira hasta 4 veces, una
 abajo, izquierda, derecha) con su scissor; no hace falta stencil. El scissor vuelve a pantalla
 completa en la siguiente tira sin recorte y al final del render. `ikaruga.cfg recorte=0` lo apaga.
 
-**Números** (región lateral = x < 100 y x ≥ 380 a 480×272; los bordes de las columnas en la
-captura de PC caen en x 105 y 375):
+**Números** (cuadro 2350 contra la imagen de mayor SSIM de la ventana 380-420 de la serie de
+Flycast, f392; izquierda = x < 100, derecha = x ≥ 380 a 480×272; umbral fijado antes de medir:
+SSIM ≥ 0,7 en cada una):
 
-| | lateral | centro | global |
-|---|---|---|---|
-| con recorte | **25,64 dB** | 15,16 dB (15,90 con niebla) | 17,24 dB (17,92 con niebla) |
-| `recorte=0` | **5,16 dB** | — | — |
+| | izquierda | derecha | centro | pantalla completa |
+|---|---|---|---|---|
+| con recorte | **SSIM 0,934** (23,24 dB) | **SSIM 0,995** (31,48 dB) | 20,28 dB / 0,682 | 21,80 dB / 0,798 |
+| `recorte=0` | **SSIM 0,099** | **SSIM 0,079** | — | — |
 
 El centro sigue bajo: no es del recorte (ver punto ciego).
 
-## 6c: botones de SELECT GAME MODE (cuadro 1700)
+## 6c: botones de SELECT GAME MODE (cuadro 1750)
 
 **Medido primero si hay render a textura**: no lo hay.
 - PSP: contador de renders con `FB_W_SOF1` bit 24 (`texture_renders` en las líneas `render:` y
   `video:`): **0** hasta el cuadro 1700; en el render capturado `fb_w_sof1 0x0066a000`,
   `fb_w_ctrl 0x00000009`.
-- PC (`ikaruga_boot … --screenshot-at 1700`): `0 written back, 0 rendered to texture`.
 
 Así que no se implementó render a textura (el contador queda en el log para cuando aparezca).
 
@@ -44,7 +44,7 @@ Así que no se implementó render a textura (el contador queda en el log para cu
 `over_budget 0`, `rejected_this_render 0`; ninguna textura rechazada ni mal decodificada.
 
 **Causa real: niebla de tabla.** La PSP salía mucho más clara (media 136 frente a 88 de PC en toda
-la pantalla; los botones, «blancos y negros», en 125/84 frente a 97/57). Línea `fog:` nueva del
+la pantalla; los botones, «blancos y negros», en 125/84 frente a 97/57; medido entonces contra el PC recompilado). Línea `fog:` nueva del
 render capturado: `density 0x0000`, `col_ram 0x3c4632`, la tabla entera en `0x9999` (factor 0,6
 para cualquier profundidad), y 696 de 739 tiras con niebla de tabla (TSP bits 22-23 = 0). Es un
 velo gris verdoso del 60 % sobre la escena: 136·0,4 + ~60·0,6 ≈ 90, lo que da PC. El backend de
@@ -63,26 +63,32 @@ color offset para la niebla por vértice (modo 1 con offset). Modo 3 (tabla solo
 el color por el de la niebla con alfa f. Translúcidas con otros factores de origen quedan sin
 niebla. `ikaruga.cfg niebla=0` lo apaga.
 
-| cuadro 1700 | botones (60,105)–(270,225) | global |
+| cuadro 1750, contra Flycast | botones (60,105)–(270,225) | pantalla completa |
 |---|---|---|
-| con niebla | **27,41 dB** | 29,94 dB |
-| `niebla=0` | **15,81 dB** | 13,11 dB |
+| con niebla | **27,96 dB** | 28,92 dB / SSIM 0,956 |
+| `niebla=0` | **15,81 dB** | — |
 
-En el 2600 también hay niebla (`density 0xef0b`, `col_ram 0xe4cab4`, tabla decreciente
-`ffe9 847a 463b 0904 0…`, 652 tiras): el centro sube de 15,16 a 15,90 dB.
+En el cuadro 2350 del capítulo 1 también hay niebla de tabla (`density 0xef0b`, `col_ram 0xe4cab4`, tabla decreciente
+`ffe9 847a 463b 0904 0…`) y el centro se ve afectado.
 
 **Costo**: `draw_ms/render` en 1680–1700 pasa de 6,78 a 13,38 ms (segunda pasada de 696 tiras);
 en 2580–2600, 26,54 ms. En el título no hay niebla (`fogged 0`) y no cambia.
 
 ## Pruebas
 
-`scripts/test-psp-video.sh <EBOOT> <extraído> <ikaruga_boot> <ikaruga.toml> [--reusar] [--solo a|b|c]`
-(cinco corridas de PPSSPP, una a la vez, ~45 min):
+`scripts/test-psp-video.sh <EBOOT> <extraído> [--reusar] [--solo a|b|c]` (cinco corridas de
+PPSSPP sin limitador, una a la vez, ~3 min), contra la serie de Flycast (ventanas en
+`scripts/escenas-flycast.sh`). Umbrales fijados antes de medir:
+
+- (a) cuadro 2350: SSIM ≥ 0,7 en izquierda y en derecha; con `recorte=0`, al menos una < 0,7.
+- (b) cuadro 1750 (SELECT GAME MODE, ventana 250-312): pantalla completa ≥ 20 dB y SSIM ≥ 0,7,
+  botones (60,105)-(270,225) ≥ 20 dB; con `niebla=0`, botones < 20 dB.
+- (c) el título (cuadro 1243): ≥ 25 dB y SSIM ≥ 0,85.
 
 ```
-(a) ok: side columns 25.64 dB >= 25; with recorte=0 5.16 dB < 15
-(b) ok: mode buttons 27.41 dB >= 20; with niebla=0 15.81 dB < 20
-(c) ok: title 28.43 dB >= 25
+(a) ok: side columns ssim 0.934/0.995 >= 0.7; with recorte=0 0.099/0.079 (one < 0.7)
+(b) ok: whole screen 28.92 dB / ssim 0.956, mode buttons 27.96 dB >= 20; with niebla=0 15.81 dB < 20
+(c) ok: title 28.31 dB / ssim 0.962
 ```
 
 Además, con el mismo EBOOT: `DREAM_RECOMP=$D scripts/test-psp-igual-pc.sh $E $G` y
@@ -107,20 +113,20 @@ ok: 5 distinct guest PCs over 7 log lines                   # test-psp-arranque.
 - **Translúcidas con niebla y factor de origen distinto de 1 o alfa** quedan sin niebla; la mezcla
   aditiva de la segunda pasada en translúcidas es una aproximación (exacta sólo para `SRC_ALPHA /
   INV_SRC_ALPHA` y `ONE / ONE`).
-- **El centro del 2600 sigue en ~16 dB**: no averigüé por qué (candidatos: color offset/especular
+- **El centro del 2350 sigue en 20,28 dB / SSIM 0,682 contra Flycast**: no averigüé por qué (candidatos: color offset/especular
   sin dibujar, volúmenes modificadores, filtrado). La prueba (a) sólo mira las columnas.
-- **Región de los botones**: la fijé a ojo sobre la captura de PC; un desplazamiento de unos
+- **Región de los botones**: la fijé a ojo sobre la captura de la PSP; un desplazamiento de unos
   píxeles no cambia el veredicto (27 vs 16 dB), pero no lo barrí.
 - **Costo**: la niebla duplica el tiempo de dibujo en escenas con niebla; no medí el efecto en la
   velocidad total del juego.
 
-## El título tras 6b/6c (`scripts/test-psp-titulo.sh $E $G $B $C`, mismo EBOOT)
+## El título tras 6b/6c (`scripts/test-psp-titulo.sh $E $G`, mismo EBOOT)
 
-| prueba | PSNR | error medio r/g/b | antes (titulo-psp.md) |
-|---|---|---|---|
-| (a) PSP 1243 vs PC 1243, con texturas | 28,43 dB | 3,86 / 3,04 / 2,69 | igual |
-| (b) igual con `texturas=0` | 9,46 dB (18,97 bajo a) | 45,24 / 61,07 / 72,93 | igual |
-| (c) PSP 1243 vs PC 800 (logo) | 7,37 dB | 91,76 / 75,56 / 65,56 | igual |
+| prueba | valor | umbral |
+|---|---|---|
+| (a) PSP 1243 vs Flycast, con texturas | 28,31 dB / SSIM 0,962 | ≥ 25 dB y ≥ 0,85 |
+| (b) igual con `texturas=0` | 9,47 dB | < 25 dB |
+| (c) PSP 1243 vs SELECT GAME MODE de Flycast | 9,94 dB | < 25 dB |
 
 Las 8 texturas del log `texture:` del cuadro 1243 son las mismas de la tabla de titulo-psp.md
 (565 512×1024 → 5650 512×512; 2× 565 256×128; 2× 1555 512×32; 2× PAL4 256×128 y 1× PAL4 64×128

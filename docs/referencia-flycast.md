@@ -1,7 +1,9 @@
 # Referencia: el EBOOT (PPSSPP) contra Flycast
 
-Fila E. Compara lo que se ve en nuestro EBOOT en PPSSPP con Ikaruga corriendo en Flycast con el
-mismo disco, escena por escena. El PC recompilado no aparece aquí: la referencia es el emulador.
+La referencia de imagen es Flycast con el mismo disco. Las pruebas de imagen (título, video,
+geometría, texturas del juego) comparan la captura de la PSP contra una serie grabada de Flycast;
+ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc*.sh`, que compara
+`write_hash` y no imágenes).
 
 ## Cómo se captura
 
@@ -20,130 +22,95 @@ mismo disco, escena por escena. El PC recompilado no aparece aquí: la referenci
 - Config y datos de Flycast en `DIR/xdg/{config,data}` (`XDG_CONFIG_HOME`/`XDG_DATA_HOME`); la
   configuración global de la cachy no se toca. Cada corrida empieza sin archivo de VMU: el juego
   muestra «データファイルの作成に成功しました» y sigue. Sin BIOS: Flycast usa reios, región Japón.
-- Cada cuadro grabado se escala a 480×272 con la misma transformación que `comparar-titulo.sh`
-  usa con PC: pantalla completa, x·480/640, y·272/480, filtro de caja (PIL `Image.BOX`).
-- El disco se copia a `build/flycast/Ikaruga.chd` (el original en /tank es de solo lectura).
+- Cada cuadro grabado se escala a 480×272 con x·480/640, y·272/480, pantalla completa, filtro de
+  caja (PIL `Image.BOX`).
+- El disco se copia a `build/flycast/Ikaruga.chd` (el original en `/tank/JuegosYRoms/dreamcast/` es
+  de solo lectura; `FLYCAST_CHD` apunta a otro).
 
-**PSP**: `scripts/probar-ikaruga-ppsspp.sh` ganó `PROBAR_GRABAR=DIR` (y `PROBAR_GRABAR_FPS`,
-default 1): graba la pantalla de PPSSPP (480×272) con `ffmpeg x11grab` durante toda la corrida.
-Sin la variable no cambia nada. La corrida usada:
+## La serie de referencia
+
+`build/flycast/ref/` (ignorada por git): 60 s a 10 fps con las pulsaciones del capítulo 1
+(`start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200`), 600 cuadros
+`p480/f00001.png`…`f00600.png`. Se graba una vez y se reusa; si falta,
+`comparar-flycast.sh --captura …` la graba sola (≈1 min, un solo Flycast):
 
 ```
-scripts/build-psp-ikaruga.sh /home/unjordi/code/ajenos/dr-idle/build-rel/games/ikaruga/gen --variantes=mix
-printf 'max_cuadros=2700\npulsar=start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200\nrtc_seed=1\n' > build/psp-serie/ikaruga.cfg
-PROBAR_DISCO=/home/unjordi/code/ikaruga-psp-wt/f8/build/DISCO-real.ISO PROBAR_CFG=build/psp-serie/ikaruga.cfg \
-  PROBAR_GRABAR=build/psp-serie/rec PROBAR_GRABAR_FPS=1 \
-  scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP <extraido> 2400 build/psp-serie/ikaruga.log
-scripts/capturar-flycast.sh build/flycast/Ikaruga.chd --segundos 50 --salida build/flycast/s1
+scripts/capturar-flycast.sh build/flycast/Ikaruga.chd --segundos 60 --salida build/flycast/ref
 ```
 
-Las pulsaciones son las de `test-psp-geometria.sh` (incluyen `start@700` del título). La PSP llegó
-al cuadro 2700 en 869 s de reloj (0,0518x en PPSSPP, con la grabación encendida): 1041 cuadros
-grabados, ~2,6 cuadros de juego por captura.
+Las ventanas de índices de cada escena están en `scripts/escenas-flycast.sh`, fijadas a ojo sobre
+los mosaicos de la serie y con margen:
 
-## Cómo se alinea
-
-Por escena, no por cuadro. Para cada escena se fija a ojo, mirando los mosaicos de las dos series,
-una ventana de capturas que la encierra en cada lado; dentro de las dos ventanas
-`comparar-flycast.sh` toma el par (Flycast i, PSP j) de **mayor SSIM de pantalla completa**. Ese
-criterio favorece a la PSP (elige su mejor momento); aun así, si las dos series no contienen el
-mismo instante (cap1-punto, abajo), parte del FAIL es desfase. Las ventanas usadas:
-
-| escena | qué es | Flycast (10 fps) | PSP (1 fps) |
+| escena | qué es | ventana (10 fps) | cuadro de la PSP |
 |---|---|---|---|
-| titulo | título quieto (logo, PRESS START) | 176-200 | 125-140 |
-| menu | menú del título (GAME START…) | 203-233 | 143-161 |
-| select | SELECT GAME MODE | 251-300 | 176-200 |
-| pausa | menú de pausa sobre el inicio del cap. 1 (lo abre `start@1600`) | 335-365 | 395-470 |
-| cap1-inicio | inicio del capítulo 1 (texto sobre el cielo, nave en perspectiva) | 366-392 | 575-660 |
-| cap1-punto | capítulo 1, «PLEASE WAIT», tramo de estructuras en diagonal | 420-445 | 795-830 |
+| título | título quieto (logo, PRESS START) | 170-205 (plateau 176-200) | 1243 |
+| SELECT GAME MODE | menú de modos, antes de que entre la pausa | 250-312 | 1750 |
+| capítulo 1, inicio | nave frente a la torre | 380-420 | 2350 |
 
-## Números
+Las escenas del menú del título, la pausa y un punto avanzado del capítulo 1 no tienen ventana
+fija: ninguna prueba las usa.
 
-`scripts/comparar-flycast.sh`: PSNR sobre RGB, SSIM sobre luma (BT.601, ventana uniforme 7×7,
-K1 0,01, K2 0,03). Regiones de la pantalla 480×272: izquierda x 0-99, centro x 100-379,
-derecha x 380-479. **Umbral fijado antes de medir: PSNR ≥ 20 dB y SSIM ≥ 0,7 en pantalla
-completa** (para toda escena; la tarea lo fija para el título y no lo moví para las demás).
+Se regrabó la serie por segunda vez de forma independiente y las tres escenas cayeron en los
+mismos índices (f178, f292, f392); las cifras de cada prueba se movieron ≤ 0,15 dB.
 
-| escena | par elegido | todo | izquierda | centro | derecha | veredicto |
-|---|---|---|---|---|---|---|
-| titulo | fly 179 / psp 140 | 28,76 dB / 0,966 | iguales (negro) | 26,41 / 0,942 | iguales | PASS |
-| menu | fly 204 / psp 149 | 25,07 / 0,957 | 28,39 / 0,986 | 23,18 / 0,933 | 45,88 / 0,999 | PASS |
-| select | fly 251 / psp 177 | 28,09 / 0,893 | 29,86 / 0,864 | 27,38 / 0,879 | 28,89 / 0,963 | PASS |
-| pausa | fly 339 / psp 428 | 21,96 / **0,577** | 20,32 / 0,173 | 22,33 / 0,856 | 23,07 / 0,174 | FAIL |
-| cap1-inicio | fly 369 / psp 576 | 22,72 / **0,603** | 19,96 / 0,134 | 27,38 / 0,945 | 19,82 / 0,085 | FAIL |
-| cap1-punto | fly 431 / psp 827 | **10,17 / 0,351** | 6,40 / 0,092 | 14,01 / 0,537 | 9,16 / 0,073 | FAIL |
+**Escena no encontrada.** `comparar-flycast.sh --captura` sale con 3 y lo dice cuando la ventana
+cae fuera de la serie, o cuando la mejor imagen es un borde de la ventana y sigue mejorando hacia
+fuera (SSIM del borde 0,02 por encima del de 3 cuadros adentro): la escena está cortada por la
+ventana. Medido: ventana 590-700 (fuera) → exit 3; ventana 150-176 con la captura del título (la
+escena empieza en 176) → exit 3, «f00176 ssim 0.867 … f00173: 0.418». Una ventana que queda después
+de la escena (205-240) no se marca: da 10,79 dB y falla los umbrales. Las contrapruebas pasan
+`--sin-borde` porque en ellas no se espera encontrar la escena.
 
-Con una ventana más ancha para cap1-punto (Flycast 395-470, PSP 780-868) el mejor par es
-fly 435 / psp 837: 10,67 dB / 0,376 (centro 17,13 / 0,577). Sigue fallando.
+## Cómo se compara
 
-Luma media de las columnas laterales (0-255) en los pares elegidos — en Flycast son negras con
-el HUD encima; en la PSP no:
+`scripts/comparar-flycast.sh --captura <captura-N.raw|png> --ventana F0-F1 [--region
+NOMBRE:x0,y0,x1,y1]... [--exigir REGLA]... [--iou]`: toma de la ventana la imagen de **mayor SSIM
+de pantalla completa** y da PSNR (RGB) y SSIM (luma BT.601, ventana uniforme 7×7, K1 0,01, K2 0,03)
+de todo, izquierda (x 0-99), centro (100-379), derecha (380-479) y las regiones con nombre; con
+`--iou`, la IoU de las máscaras de píxeles no negros (algún canal > 24). `--exigir
+'REGIÓN:psnr>=V'` (o `ssim`, `iou`, `<`; `|` es «o») decide el código de salida. Ese criterio de
+elección favorece a la PSP (elige su mejor momento dentro de la ventana). Modo de dos series
+(`comparar-flycast.sh <serie-flycast/p480> <serie-psp> --escena NOMBRE:F0-F1:P0-P1`): lo mismo, pero
+la PSP también es una serie (`PROBAR_GRABAR=DIR` en `probar-ikaruga-ppsspp.sh`).
 
-| escena | Flycast izq / der | PSP izq / der |
-|---|---|---|
-| pausa | 3,6 / 1,5 | 13,8 / 13,7 |
-| cap1-inicio | 3,2 / 0,1 | 21,4 / 20,4 |
-| cap1-punto | 3,4 / 0,0 | 113,8 / 78,0 |
-| titulo, menu, select | iguales en los dos (±3) | |
+## Umbrales y lo medido (build `float`, develop + este paso)
 
-### Contraprueba
+Umbrales fijados antes de medir; no se movieron.
 
-La PSP de una escena contra Flycast de otra (mismos pares elegidos):
+| prueba | escena (ventana → imagen) | umbral | medido | contraprueba |
+|---|---|---|---|---|
+| título (a) | 1243 (170-205 → f178) | todo ≥ 25 dB y SSIM ≥ 0,85 | 28,31 dB / 0,962 | `texturas=0`: 9,47 dB (< 25); contra SELECT GAME MODE: 9,94 dB (< 25) |
+| video (b) | 1750 (250-312 → f292) | todo ≥ 20 dB y SSIM ≥ 0,7; botones ≥ 20 dB | 28,92 dB / 0,956; botones 27,96 dB | `niebla=0`: botones 15,81 dB (< 20) |
+| video (a) | 2350 (380-420 → f392) | SSIM ≥ 0,7 en izquierda y derecha | 0,934 / 0,995 | `recorte=0`: 0,099 / 0,079 |
+| geometría | 2350 (380-420 → f392) | IoU ≥ 0,6 | 0,9798 | `dibujar=0`: 0,0000 |
+| texturas del juego (b) | 2350 (380-420 → f392) | todo ≥ 20 dB | 21,80 dB | (c) `texturas_kb=2048`: rechaza 10 907 pedidos |
 
-| PSP | Flycast | PSNR | SSIM |
-|---|---|---|---|
-| titulo | select | 9,71 dB | 0,151 |
-| select | titulo | 9,41 dB | 0,145 |
-| cap1-punto | titulo | 9,11 dB | 0,123 |
-| cap1-inicio | cap1-punto | 9,40 dB | 0,095 |
+**Por qué el cuadro 2350 y no el 2600.** Flycast va por reloj de pared y la PSP por cuadros: una
+misma pulsación cae en instantes distintos del capítulo 1 y la escena que la PSP muestra en el 2600
+(estructuras en diagonal) no está en la serie en ese instante. Barrido de la PSP contra la ventana
+380-450 (PSNR / SSIM de pantalla completa): 2300 → 21,50 / 0,765; 2350 → 21,80 / 0,798; 2400 →
+19,97 / 0,704; 2450 → 13,60 / 0,553; 2600 → 7,01 / 0,554 (mejor par de toda la serie). Los
+umbrales no se tocaron; se eligió el punto del capítulo 1 que la serie contiene. El 2400 queda a
+0,03 dB del umbral de 20 dB: la prueba de texturas del juego es sensible al cuadro elegido.
 
-Todas muy por debajo del umbral: la métrica separa escenas, y las tres que pasan pasan porque
-se parecen.
+Las columnas laterales de la PSP son hoy negras con el HUD, como en Flycast, en 2200, 2400 y 2600
+(SSIM izquierda 0,93, derecha 0,995 en los tres): el escenario bajo las columnas y las franjas
+negras de la primera comparación ya no se ven. Sigue visible a ojo (capturas de 2200-2600): «CHAIN
+STATUS» sale como una línea borrosa y la columna de cuadros del chain como una fila de puntos, en
+vez de texto y cuadros huecos; no lo medí por separado.
 
-## Diferencias visibles (insumo de las siguientes filas)
+### Diferencia que queda
 
-Vistas en `build/flycast/comparacion/<escena>-{flycast,psp,dif}.png` y en los mosaicos; las de
-«alta» confianza las confirman los números de la tabla de luma, las de «media» solo el ojo (y un
-modelo de visión que a veces se equivoca).
+El centro del capítulo 1 en 2350: 20,28 dB / SSIM 0,682 (pantalla completa 21,80 / 0,798). Parte es
+desfase entre las dos series y parte puede ser defecto de la PSP; no las separé. Los pasos 39-40 del
+plan lo atacan.
 
-1. **Columnas laterales con escenario en vez de negro** — cap1-inicio, pausa, cap1-punto; regiones
-   izquierda y derecha. En Flycast el juego dibuja el campo en el centro
-   y las columnas laterales quedan negras con el HUD encima. En la PSP el escenario 3D se ve en las
-   columnas (en cap1-punto el cielo y las vigas llenan x 0-90 y x 385-480). Es la causa principal de
-   los SSIM 0,07-0,17 de las laterales. Confianza alta. Sospecha (no verificada): falta o no tapa el
-   polígono/recorte que oscurece las laterales (orden de dibujo, profundidad o recorte de la región
-   de render).
-2. **Franjas negras verticales estrechas dentro de la pantalla** — cap1-punto; en x ≈ 90-100
-   (izquierda/centro) y x ≈ 375-385 (centro/derecha). En la PSP solo queda negra una banda angosta
-   donde en Flycast empieza/termina el campo; parece el borde del panel negro que sí se dibuja, o el
-   recorte de una capa. Confianza alta (luma 40 y 22 en esas bandas contra 0 en Flycast, y a ojo).
-3. **«CHAIN STATUS» y la columna de cuadros del chain** — cap1-inicio, cap1-punto; región
-   izquierda. En Flycast: el texto «CHAIN STATUS» bajo «1P» y una columna de cuadros huecos
-   abajo. En la PSP, en cap1-punto, en lugar del texto hay un recuadro con una línea bajo «1P», y los
-   cuadros se ven como una fila vertical de puntos. Confianza media.
-4. **Texto del menú de pausa menos nítido** — pausa; centro. Mismo contenido y posición
-   («PAUSE MENU», «Continue Game», la barra azul de selección), pero con bordes más gruesos o
-   duplicados en la PSP. Centro 22,33 dB / 0,856: pasa por sí solo. Confianza media.
-5. **Centro del cap. 1 en el tramo de juego** — cap1-punto; centro 14,01 dB / 0,537. Parte es
-   desfase: la nave está en otra posición (las pulsaciones en Flycast van por reloj de pared y el
-   escenario avanza a otra velocidad respecto a la serie de la PSP) y no hay el mismo instante en las
-   dos series. Parte es la diferencia 1, que también ensucia el borde del centro. No separé las dos
-   partes. Confianza baja sobre lo que sea defecto de la PSP.
-6. **«PRESS START» arriba a la derecha** — cap1-inicio; región derecha/centro superior. El modelo de
-   visión lo ve en la PSP y no en Flycast; puede ser solo el parpadeo del texto en otro instante.
-   No confirmado.
-
-Lo que **sí** se ve como en el emulador: título (logo, PRESS START, laterales negras), menú del
-título y SELECT GAME MODE, todo por encima de 25 dB y 0,89 de SSIM; el texto del inicio del cap. 1
-y el cielo con la estructura en diagonal (centro 27,38 dB / 0,945).
-
-## Entradas de esta fila contra `docs/primer-uso.md`
+## Entradas contra `docs/primer-uso.md` (medido el 2026-11-10)
 
 Cada pieza de las tablas «Qué copiar a la memory stick» y «Hashes de la corrida» de
-`docs/primer-uso.md`, medida sobre lo que usó esta fila (2026-11-10):
+`docs/primer-uso.md`:
 
-| pieza | primer-uso.md | esta fila | |
+| pieza | primer-uso.md | medido | |
 |---|---|---|---|
 | CHD de entrada | 26 841 157 B, sha256 `a322d7ee…a9a66` | copia en `build/flycast/Ikaruga.chd` y original en /tank: 26 841 157 B, `a322d7ee…a9a66` | igual |
 | `1ST_READ.BIN` | 1 027 892 B, sha1 `f2524eb5…764c6f9` | 1 027 892 B, sha1 `f2524eb571da1b0fb4a9b2cdab448ce24764c6f9`, sha256 `b3c9a2b9…855de` | igual |
@@ -154,30 +121,21 @@ Cada pieza de las tablas «Qué copiar a la memory stick» y «Hashes de la corr
 | `VMU.BIN`, `ikaruga.log`, `ikaruga.cfg` | el EBOOT crea `VMU.BIN` (128 KiB) e `ikaruga.log`; `ikaruga.cfg` opcional | `ikaruga.cfg` usado (pulsaciones, `max_cuadros=2700`, `rtc_seed=1`); `ikaruga.log` escrito y copiado a `build/psp-serie/`; `VMU.BIN` no lo saqué de la memory stick temporal (sin `PROBAR_VMU_OUT`) | VMU no verificado |
 | total memory stick | 1 047 412 752 B | 1 047 414 096 B | +1 344 B, la diferencia del EBOOT |
 | `test-psp-igual-pc.sh` | PASS 10/10 (60…600) | corrido con `HASTA=240`: PASS 4/4, cuadro 60 `b003d78fd04385d4`, 240 `d7e9cca457022d77` | el cuadro 60 coincide con el del doc; 300…600 no los corrí (la regla pide hasta 240) |
-| `test-psp-titulo.sh` | PASS (a) 28,43 dB … | no corrido | la batería la corre el orquestador; el título contra Flycast da 28,76 dB / 0,966 (arriba) |
-
-## Pruebas corridas en esta fila
-
-- `capturar-flycast.sh` y `comparar-flycast.sh`, con los números de arriba.
-- Arranque rápido igual a PC hasta el cuadro 240 (`HASTA=240 test-psp-igual-pc.sh`, como
-  herramienta de depuración, con el mismo EBOOT `float`): `write_hash` igual en 60, 120, 180 y 240.
-  El único cambio a código existente es `PROBAR_GRABAR` en `probar-ikaruga-ppsspp.sh`, que sin la
-  variable no cambia nada.
-- La batería completa (`test-psp-titulo.sh --todas`) no la corrí: la corre el orquestador.
 
 ## Qué NO verifiqué y dónde está mi punto ciego
 
-- Las ventanas de cada escena las puse yo a ojo; el mejor-SSIM dentro de ellas es objetivo, las
-  ventanas no. En cap1-punto no hay garantía de que las dos series contengan el mismo instante.
-- Flycast corre en tiempo real y las pulsaciones van por reloj de pared: no es cuadro exacto, y
-  no medí cuántos cuadros de juego cae cada pulsación respecto a la PSP.
-- La PSP se grabó a 1 captura por segundo de reloj (~2,6 cuadros de juego): un instante corto
-  puede caer entre dos capturas.
+- Las ventanas las puse a ojo; el mejor-SSIM dentro de ellas es objetivo, las ventanas no. El
+  cuadro 2350 se eligió viendo el barrido de arriba (a la vista de los números, no antes).
+- Flycast corre en tiempo real y las pulsaciones van por reloj de pared: no es cuadro exacto, y no
+  medí cuántos cuadros de juego cae cada pulsación respecto a la PSP. Dos grabaciones dieron los
+  mismos índices; no medí más de dos.
+- La serie son 10 capturas por segundo: un instante corto puede caer entre dos.
 - Flycast sin BIOS (reios) y región Japón; no probé la rama `md5fix` ni un BIOS real. Un error de
   reios en la parte de juego no lo distinguiría de un error de la PSP.
-- No miré el código de render para confirmar la causa de las diferencias 1-3: son sospechas.
+- La IoU de geometría (0,98) es una medida gruesa: el campo ocupa casi la misma área en los dos.
+- La detección de «escena no encontrada» solo cubre una ventana cortada por un borde o fuera de la
+  serie; una ventana que contiene otra escena parecida pasa como cualquier comparación y la
+  separan los umbrales.
 - El archivo de VMU: Flycast arranca sin tarjeta y crea una; la PSP usa la suya en memoria. No
   verifiqué que no cambie algo visible (no lo vi).
-- Corrí solo una serie por lado: no medí cuánto varían los números entre corridas.
-- Capturas y series viven en `build/` del worktree (el arnés lo borra): los números de este
-  documento son la única copia.
+- Todo es PPSSPP contra Flycast: ninguna PSP real.
