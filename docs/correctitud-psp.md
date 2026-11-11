@@ -179,10 +179,30 @@ unos 1 500 s de PPSSPP para llegar al cuadro 2600.
 | sin arreglo (paso 1) | `0d778aaa…` | primer cuadro distinto 1983 |
 | solo DAZ/FTZ (sin la regla de NaN) | `da2d7b9e…` | iguales 1…2276, distinto en **2277** |
 | **arreglo completo** | `f760c959…` | **PASA**: los 43 cuadros 60…2600 iguales |
-| contraprueba `DREAM_SOFT_DAZ=0` | `6c4221aa…` | CONTRA_RESULTADO |
+| contraprueba `DREAM_SOFT_DAZ=0` | `6c4221aa…` | FALLA como debe: primer cuadro distinto **1983** (`test-psp-igual-pc.sh` cada 60 falla en 2040); la contraprueba del script pasa |
+
+Arranque rápido con el build `float` que se entrega (`DREAM_SOFT_DAZ` apagado, md5 `4b2d8f8b…`, con la
+línea `fpu:` nueva): `HASTA=240 test-psp-igual-pc.sh` → iguales los 4 cuadros 60…240.
 
 Evidencia (fuera del repo, en `build/f8b/`): `pcl/w.log` y `pspl/writes.log` (ventana 164 185 556 + 422 527),
 `pcl2/` y `pspl2/` (ventana 275 455 580 + 299 836), `r3/` (aceptación) y `contra/`.
+
+### Qué NO verifiqué en la fila 8b y dónde está mi punto ciego
+
+- **Solo PPSSPP.** La sonda `fpu:` (sin DAZ en las entradas, con FTZ en los resultados) es lo que hace PPSSPP;
+  no la corrí en una PSP real. Si la Allegrex real sí hiciera DAZ, el parche sobraría ahí, pero no estorbaría.
+- **Causa 2 inferida.** No aislé qué instrucción produjo el NaN de signo distinto; supongo que fue FTRV o FIPR
+  en `double`, porque solo ahí puse la regla de NaN de x86 y con eso la escritura se iguala. Los `fadd`/`fmul`
+  generados en `float` usan la FPU de hardware de la PSP, y su NaN no lo comparé con el de x86.
+- **Alcance.** Igualdad total probada solo con las pulsaciones del capítulo 1 hasta el cuadro 2600 (todos los
+  cuadros). Más allá, o con otra entrada, puede aparecer otra diferencia de FPU.
+- **Costo.** No medí cuánto frena `Freg` el build `double`; solo sirve para depurar. El build `float` compila
+  `Freg = float` (sin cambio de código), pero su EBOOT cambia de md5 por la sonda de `main.cpp`. No volví a
+  medir su velocidad ni corrí `--todas`: eso le toca al orquestador.
+- `devinterp/interpreter.cpp` toma `float&` de `c.fr[n]`: con `DREAM_SOFT_DAZ=1` no compilaría. En la PSP no
+  se compila, y el lado de PC no lleva este parche.
+- La entrada la descarté leyendo el código de los dos lados y viendo que la primera diferencia es de punto
+  flotante. No registré el estado del mando cuadro por cuadro en los dos lados.
 
 ## Qué NO verifiqué y dónde está mi punto ciego
 
