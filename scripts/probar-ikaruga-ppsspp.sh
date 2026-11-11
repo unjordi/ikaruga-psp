@@ -102,7 +102,9 @@ while [ "$t" -lt "$SEGUNDOS" ] && kill -0 "$pid" 2>/dev/null; do
   if [ "$SIN_LIMITE" = 1 ]; then
     xdotool mousemove 240 136 keydown Tab >/dev/null 2>&1 || true
   fi
-  if grep -q '^stop: \|^capture: ' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
+  # The EBOOT's last lines: "stop: ...", "capture: ..." or "max_cuadros reached ..." (PPSSPP
+  # itself stays open at its menu after the EBOOT quits).
+  if grep -q '^stop: \|^capture: \|^max_cuadros reached' "$GAME/ikaruga.log" 2>/dev/null; then sleep 3; break; fi
   sleep 1; t=$((t + 1))
 done
 alive=1
