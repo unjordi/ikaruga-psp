@@ -516,3 +516,68 @@ a 272×363 girados 90° en el GE (`psp/stubs/video.cpp`, `video_draw_frame`: int
 escala al pasar los vértices; no hace falta pasada extra). El mapeo de controles TATE del paso 19
 sigue haciendo falta. **Borrar el 50** como paso (contestado aquí). La medida del 49 (área 3:4 con
 paneles) aplica a Steam, no al Dreamcast: en Dreamcast TATE es pantalla completa.
+
+---
+
+## Cambios que propongo a `docs/plan.md` (no lo edito aquí)
+
+| paso | propuesta | motivo (sección de este documento) |
+|---|---|---|
+| 23 | partir en 23a (volcar en `Hooks::on_idle` con pc `0x0C0370BA`), 23b (`run_guest_from` en `abi_bare.cpp`), 23c (serializar los dispositivos) | 23 |
+| 36 | partir: 36a alinear el instante en las comparaciones (sube de 15,7 a 19,0 dB sin tocar el port); 36b recortar los polígonos fuera de ±2048 del GE; 36c mipmaps en el GE solo si la contraprueba de filtrado lo pide; 36d lo que quede → 44a | 36 |
+| 37 | **borrar**; las comparaciones contra PC lanzan PC con `--vmu` (tarjeta en blanco), dentro del paso 85 | 37 |
+| 38 | cerrar para el capítulo 1 (0 renders a textura en 8715) | 38 |
+| 39 | **borrar**; el paso 72 vigila que `texture_renders` siga en 0 | 38 |
+| 40 | trabajo concreto: profundidad en `video_draw_frame` sin los planos 1/w ≥ 1 en el reparto lineal (o log2) | 40–48 |
+| 41 | trabajo con medida previa: subdividir tiras con 1/w máx/mín > 1,5 si la captura contra Flycast muestra la deformación | 40–48 |
+| 42 | **borrar** (sin culling CW/CCW) | 40–48 |
+| 43 | **borrar** (volúmenes sin efecto) | 40–48 |
+| 44 | queda solo 44a color offset (pasada aditiva); color clamp **borrar** | 40–48 |
+| 45 | reducir a lo hecho; modos 1/3 y translúcidas con otro factor **borrar**; el riesgo EQUAL va al 82 | 40–48 |
+| 46 | reducir a «los 2 polígonos PAL8 se dibujan» y «la prueba lee `failed`/`over_budget` del log»; lo demás **borrar** | 40–48 |
+| 47 | **borrar** como paso propio; se reabre solo si 35/72 ven un cambio de comportamiento | 47 |
+| 48 | **borrar** el modo 3; el parpadeo de PRESS START va al 85 | 40–48 |
+| 50 | **borrar** (contestado: el juego gira y llena 640×480) | 50 |
+| 51 | reescribir: TATE = opción `MONITOR TYPE` del juego + escalar 640×480 girado a 272×363 en el GE | 50 |
+| 54 | fundir en 55 | 54 |
+| 55 | 55a interruptor de mezclador/DSP en `Aica::sample_tick`; 55b idle-skip del ARM en `0x1d10–0x1d48` | 54 |
+| 56 | reducir: `[idle]` del GD-ROM (`0x0C040E14`) al final de la sección de velocidad; pausa y cambio de capítulo se miden en el 72 | 56 |
+| 71 | marcar como comprobado que el código del driver no cambia en título y capítulo 1; repetir la comparación en capítulos 2–5 (72) | 71 |
+
+## Qué NO verifiqué y dónde está mi punto ciego
+
+- **No corrí PPSSPP en absoluto** (lo ocupaba otra verificación). Todo lo que digo sobre la PSP sale
+  de leer `psp/` y de la captura `psp-2600.png` que dejó la verificación de video de develop. Tampoco
+  corrí el arranque rápido igual a PC hasta el cuadro 240: no cambié código del juego ni del port (solo
+  añadí `tools/analizar-ta.cpp`, una herramienta de host que no entra al EBOOT).
+- **Paso 36**: las dos hipótesis (polígonos fuera de ±2048, filtrado sin mip) **no están
+  comprobadas**; el experimento queda escrito pero sin correr. El reflejo de la estructura lo vio el
+  modelo de visión, no lo medí. Flycast no sirvió para este tramo por el desfase de pulsaciones, así
+  que la comparación es contra PC, que solo vale aquí como herramienta.
+- **Paso 37**: demostré que la tarjeta explica el render de menos en PC; no comprobé en la PSP que con
+  tarjeta su conteo y el de PC coincidan cuadro a cuadro (lo esperable, pero sin PPSSPP).
+- **Pasos 38, 40–48, 71**: solo título, menú y capítulo 1 hasta el cuadro 9000 con las pulsaciones
+  guionadas; no llegué a jefes ni a los capítulos 2–5. Cuento bits por **render volcado** (11
+  renders), no por cada render de la corrida: un efecto que aparezca en cuadros que no volqué no
+  sale en la tabla. El análisis de bits de TSP/TCW/ISP usa mi lectura de la disposición de Flycast
+  (`ta_structs.h`); un bit mal leído cambiaría una fila de la tabla. El z-fighting (paso 40) es una
+  predicción por conteo de escalones, no algo visto.
+- **Paso 47**: no hay build `double` ni build sin FTZ en la máquina; la respuesta es por argumento,
+  no por medida.
+- **Paso 54**: sin `perf`; el reparto del costo del AICA es el de `docs/medicion-pc.md`, no lo volví a
+  medir. Que el histograma del ARM sea un bucle de espera es lectura de las direcciones, no
+  desensamblado (no pude desensamblar ARM con el `llvm-objdump` de la máquina).
+- **Paso 56**: el muestreo es por ciclos del guest, no por tiempo de host: dice dónde está el guest,
+  no cuánto cuesta en la PSP. Pausa y cambio de capítulo no aparecieron en la corrida.
+- **Paso 71**: «zona de código» = hasta la última palabra con forma de instrucción ARM incondicional
+  en los primeros 64 KB (`0x9010`); si el driver tiene código más arriba o carga código por partes
+  más tarde, no lo vería.
+- **Paso 23**: es lectura del generado y de `abi_bare.cpp`; no volqué ni reanudé nada. Asumo que el
+  guest no tiene ninguna excepción abierta cuando está en `0x0C0370BA`.
+- **Paso 50**: el sentido de giro de `VERTICAL 1` frente a `VERTICAL 2` y si el juego ajusta el
+  aspecto (640×480 girado se ve deformado en una pantalla girada de 4:3) no los miré.
+- **Evidencia**: el sandbox no me dejó escribir en `~/code/ajenos/ikaruga-tareas/investigacion-evidencia/`;
+  quedó en `build/investigacion-evidencia/` de este worktree, que el arnés borra. La copia del CHD
+  que usó Flycast también está ahí (fuera del repo, gitignored).
+- **Rama**: el arnés me puso en `axon/reglas-fijas-de-este-proyecto-ap-ygbpge` (avanzada a
+  `origin/develop` 24d2d31), no en `docs/investigacion-pendientes` como pedía la tarea.
