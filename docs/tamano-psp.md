@@ -9,7 +9,7 @@ toolchain `ikaruga-psp-toolchain:v20261001` (psp-g++ 15.2.0), dream-recomp `51ca
 CONFIRMADO con `ls $G | sort | while read f; do cat "$G/$f"; done | sha256sum`).
 Los stubs de host (`psp/stubs/`) no hacen nada: el `.elf` enlaza pero no arranca el juego.
 
-MB = MiB (1 048 576 B), igual que el presupuesto de `docs/diseno-psp.md` §2.
+MB = MiB (1 048 576 B), igual que el presupuesto de `docs/plan.md` (paso 30).
 
 ## 1. `psp-size`
 
@@ -63,13 +63,13 @@ Del código generado, por sección (misma salida):
 | -O2 | 21 651 192 | 928 289 | 464 396 | 430 188 |
 | -Os | 11 482 856 | 135 076 | 410 568 | 0 |
 
-Referencia x86-64 (`docs/diseno-psp.md` §2): `text` del release = 13 146 938 B, compilado a `-O1`.
+Referencia x86-64: `text` del release = 13 146 938 B, compilado a `-O1`.
 En MIPS el generado a `-O2` sale 1,65× eso (21,65 MB de `.text`); a `-Os`, 0,87×.
 La estimación de §2 (13–20 MB) queda superada por -O2 y por debajo con -Os.
 
 ## 3. Contra el presupuesto (≈52 MB útiles, PSP-2000/3000 con `MEMSIZE=1`)
 
-Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (`docs/diseno-psp.md` §2, SEGÚN
+Cuenta: imagen del elf (`dec` de `psp-size`) + guest 28,1 MB (presupuesto del diseño, hoy en `docs/plan.md` paso 30, SEGÚN
 `memory-footprint-study.md`). La suma la imprime el propio script al final del build
 (`build/psp/evidencia/build-limpio.log`).
 
@@ -159,7 +159,7 @@ margen, igual que `-Os`. Los +140 B del generado con las mismas banderas no los 
 - **`-mno-explicit-relocs`** puede generar código algo distinto (macros del ensamblador en vez de
   pares `%hi/%lo` programados por gcc); no medí su efecto en tamaño ni velocidad contra la versión
   con relocs explícitos, porque esa nunca terminó de ensamblar.
-- **El presupuesto de 52 MB** y el resto (texturas, GE, pilas) vienen de §2 de `diseno-psp.md`, no
+- **El presupuesto de 52 MB** y el resto (texturas, GE, pilas) vienen del presupuesto del diseño (`docs/plan.md`, paso 30), no
   medidos aquí. Tampoco conté memoria dinámica del runtime fuera de los 28,1 MB del guest (vectores,
   `unordered_map` del ABI, colas de AICA/PVR): la `bss` del runtime (0,56 MB) sí está, el heap no.
 - **No medí velocidad**: -Os podría ser bastante más lento que -O2 en el bucle caliente.

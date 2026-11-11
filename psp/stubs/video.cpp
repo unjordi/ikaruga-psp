@@ -1,4 +1,4 @@
-// Rows 1-4 of docs/diseno-psp.md: draws the Frame that dream::render decodes from the Tile
+// Draws the Frame that dream::render decodes from the Tile
 // Accelerator stream with the GE at 480x272, in through mode (GU_TRANSFORM_2D) with the
 // 640x480 -> 480x272 scale done while converting the vertices. Textures come from texture_psp.h;
 // the per-polygon state is read from the TSP word:
