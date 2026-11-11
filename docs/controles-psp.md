@@ -7,7 +7,7 @@ OR con las pulsaciones guionadas (`pulsar=`); las pruebas que usan `pulsar=` no 
 
 ## Mapeo por defecto y su fuente
 
-Fuente: manual japonés de Ikaruga para Dreamcast (ESP, 2002), página 3 «コントローラの使い方»;
+Fuente: manual japonés de Ikaruga para Dreamcast (ESP, 2002), página 3 (uso del mando);
 escaneo en archive.org, ítem `Ikaruga_2002_ESP_JP`
 (<https://archive.org/details/Ikaruga_2002_ESP_JP>). Lo que dice de cada control:
 
