@@ -197,8 +197,9 @@ Evidencia (fuera del repo, en `build/f8b/`): `pcl/w.log` y `pspl/writes.log` (ve
 - **Alcance.** Igualdad total probada solo con las pulsaciones del capítulo 1 hasta el cuadro 2600 (todos los
   cuadros). Más allá, o con otra entrada, puede aparecer otra diferencia de FPU.
 - **Costo.** No medí cuánto frena `Freg` el build `double`; solo sirve para depurar. El build `float` compila
-  `Freg = float` (sin cambio de código), pero su EBOOT cambia de md5 por la sonda de `main.cpp`. No volví a
-  medir su velocidad ni corrí `--todas`: eso le toca al orquestador.
+  `Freg = float` (sin cambio de código), pero su EBOOT cambia de md5 por la sonda de `main.cpp`. Su velocidad
+  la volví a medir (juego 2600 0,0869x, título 1243 0,1458x; tabla de la fila 8b en
+  docs/velocidad-psp.md, una corrida cada uno); `--todas` no lo corrí: le toca al orquestador.
 - `devinterp/interpreter.cpp` toma `float&` de `c.fr[n]`: con `DREAM_SOFT_DAZ=1` no compilaría. En la PSP no
   se compila, y el lado de PC no lleva este parche.
 - La entrada la descarté leyendo el código de los dos lados y viendo que la primera diferencia es de punto
