@@ -385,7 +385,7 @@ directamente a vértices del GE) ahorra la copia y una pasada. Ganancia [INFER] 
 **B6. Texturas.** Decodificar a 16 bits (4444/5551/5650) o mantener paleta (CLUT del GE) cuando el origen es de paleta;
 VQ no existe en el GE y se decodifica; swizzle al subir; caché por dirección+palabra de control+hash, residente en eDRAM
 con LRU y respaldo en RAM. El juego sube poco: 3,6 MB de texturas por DMA en 80 s (CONFIRMADO, reporte `ch2 DMA`), así
-que la caché casi no se renueva. Diseño SEGÚN la pieza 3 del diseño (`docs/plan.md` paso 64) y `oot-psp` `psp_texture_manager.c:221,335`.
+que la caché casi no se renueva. Diseño SEGÚN la pieza 3 del diseño (`docs/plan.md`, paso «Texturas a 16 bits») y `oot-psp` `psp_texture_manager.c:221,335`.
 
 **B7. Vértices en coordenadas de 16 bits** (`GU_VERTEX_16BIT` en modo 2D): mitad de memoria y de ancho de banda que
 `GU_VERTEX_32BITF`. Riesgo: precisión subpíxel (sin importancia a 480×272) [INFER]. Esfuerzo: bajo.

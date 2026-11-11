@@ -1,5 +1,5 @@
-// Host services the PSP build needs from outside dream-recomp's core (table 1 of
-// docs/diseno-psp.md). Audio is still a stub that does nothing.
+// Host services the PSP build needs from outside dream-recomp's core (the host pieces of
+// docs/plan.md). Audio is still a stub that does nothing.
 #pragma once
 
 #include <cstdint>
