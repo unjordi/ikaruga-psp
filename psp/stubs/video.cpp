@@ -354,15 +354,33 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
     // Depth: the frame's 1/w range spread over the 16-bit buffer, larger nearer. The HUD and
     // background planes sit at 1/w >= 1 and the scene at 1e-4..1e-1, so spreading min..max linearly
     // left the scene in a few dozen steps (paso 45: 1446 overlapping, ordered polygon pairs on the
-    // same step in frame 2000). When both are present, the scene (1/w < 1) gets 1..65000 and the
+    // same step in frame 2000; 24, all coplanar, with this split). When both are present, the
+    // on-screen scene (1/w < 1) gets 1..65000 and the
     // planes get their own band 65001..65535, which keeps their order among themselves. The 3D
     // matrix below uses the same zbias/zscale, so the perspective strips stay coherent.
-    const float zmin = frame.min_z;
-    float zmax = zmin;
-    for (const auto& v : frame.vertices)
-        if (v.z < 1.0f && v.z > zmax) zmax = v.z;
+    // Only polygons whose box touches the 640x480 screen count: off-screen ones (e.g. the fog
+    // quads at 1/w 0.1 around -2,-1) are not drawn and would stretch the range again.
+    float zmin = 1e30f, zmax = -1e30f;
+    for (const auto& list : frame.lists)
+        for (const auto& p : list) {
+            float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+            for (std::uint32_t i = 0; i < p.count; ++i) {
+                const auto& v = frame.vertices[p.first + i];
+                x0 = std::min(x0, v.x); x1 = std::max(x1, v.x);
+                y0 = std::min(y0, v.y); y1 = std::max(y1, v.y);
+            }
+            if (x1 <= 0.0f || y1 <= 0.0f || x0 >= 640.0f || y0 >= 480.0f)
+                continue;
+            for (std::uint32_t i = 0; i < p.count; ++i) {
+                const float z = frame.vertices[p.first + i].z;
+                zmin = std::min(zmin, z);
+                if (z < 1.0f) zmax = std::max(zmax, z);
+            }
+        }
+    if (!(zmin < 1e30f)) zmin = frame.min_z;
+    if (zmax < zmin) zmax = zmin;
     const bool split = zmax > zmin && frame.max_z >= 1.0f;
-    if (!split) zmax = frame.max_z;
+    if (!split) { zmin = frame.min_z; zmax = frame.max_z; }
     const float hud_scale = split && frame.max_z > 1.0f ? 534.0f / (frame.max_z - 1.0f) : 0.0f;
     // 0 is the cleared value, so drawn depth starts at 1 and a GREATER test against an empty
     // pixel passes.
