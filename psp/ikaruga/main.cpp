@@ -247,9 +247,9 @@ void log_memory(const char* tag) {
 
 // Memory counter (memoria=1): highs and lows seen at every sample. newlib's heap only asks the
 // system for more through sbrk, so `arena` is what it has requested and `in_use` what the program
-// holds inside it; `usmblks` is newlib's own high-water mark of the arena.
+// holds inside it. The arena never shrinks, so its last value is its peak.
 struct MemoryPeaks {
-    std::size_t arena = 0, in_use = 0, usmblks = 0;
+    std::size_t arena = 0, in_use = 0;
     std::uint32_t min_total_free = ~0u, min_max_free = ~0u;
 } g_peaks;
 
@@ -257,7 +257,6 @@ void sample_memory() {
     const struct mallinfo mi = mallinfo();
     g_peaks.arena = std::max<std::size_t>(g_peaks.arena, mi.arena);
     g_peaks.in_use = std::max<std::size_t>(g_peaks.in_use, mi.uordblks);
-    g_peaks.usmblks = std::max<std::size_t>(g_peaks.usmblks, mi.usmblks);
     g_peaks.min_total_free = std::min<std::uint32_t>(g_peaks.min_total_free,
         sceKernelTotalFreeMemSize());
     g_peaks.min_max_free = std::min<std::uint32_t>(g_peaks.min_max_free,
@@ -268,11 +267,11 @@ void log_memory_counter(const char* tag, std::uint64_t frame) {
     sample_memory();
     const struct mallinfo mi = mallinfo();
     log_line("mem: %s frame %" PRIu64 " sys_total_free_kb %u sys_max_free_kb %u arena %zu in_use %zu "
-        "free_in_arena %zu usmblks %zu | peak arena %zu in_use %zu usmblks %zu min_sys_total_free_kb %u "
+        "free_in_arena %zu | peak arena %zu in_use %zu min_sys_total_free_kb %u "
         "min_sys_max_free_kb %u", tag, frame,
         static_cast<unsigned>(sceKernelTotalFreeMemSize() / 1024),
         static_cast<unsigned>(sceKernelMaxFreeMemSize() / 1024), std::size_t(mi.arena),
-        std::size_t(mi.uordblks), std::size_t(mi.fordblks), std::size_t(mi.usmblks), g_peaks.arena, g_peaks.in_use, g_peaks.usmblks, g_peaks.min_total_free / 1024,
+        std::size_t(mi.uordblks), std::size_t(mi.fordblks), g_peaks.arena, g_peaks.in_use, g_peaks.min_total_free / 1024,
         g_peaks.min_max_free / 1024);
 }
 
@@ -403,8 +402,10 @@ int main(int argc, char** argv) {
     log_line("ikaruga-psp: log every %" PRIu64 " guest frames", kLogEvery);
     log_fpu_probe();
     const Config cfg = read_config();
-    if (cfg.memory)
+    if (cfg.memory) {
+        log_memory("heap-at-start");  // arena + largest_block = the whole heap, before the guest
         log_memory_counter("start", 0);
+    }
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
     host::video_set_clip(cfg.clip);
@@ -444,6 +445,8 @@ int main(int argc, char** argv) {
     const auto region = dream::hle::Region::Japan;
     bios.set_locale(dream::hle::Language::English, region, dream::hle::broadcast_for(region));
     sys.install();
+    if (cfg.memory)
+        log_memory_counter("system", 0);
     std::vector<std::uint8_t> flag;
     const bool idle_skip = !host::file_read(path_in_dir(kNoIdleSkip).c_str(), flag);
     if (idle_skip) {
@@ -462,6 +465,8 @@ int main(int argc, char** argv) {
     bios.setup_boot(kEntry);
     std::memcpy(sys.memory.ram() + offset, program.data(), program.size());
 
+    if (cfg.memory)
+        log_memory_counter("program", 0);
     dream::pvr::Core pvr(sys.sched, sys.holly, sys.spg, sys.memory);
     sys.memory.map_mmio(dream::pvr::Core::kRegBase, dream::pvr::Core::kRegEnd, &pvr);
     sys.memory.map_mmio(dream::pvr::Core::kFifoBase, dream::pvr::Core::kFifoEnd, &pvr);
@@ -690,6 +695,8 @@ int main(int argc, char** argv) {
             throw StopRun{"max_cuadros reached"};
     };
 
+    if (cfg.memory)
+        log_memory_counter("setup", 0);
     log_line("start: %zu bytes of 1ST_READ.BIN at 0x%08" PRIx32 ", disc %u sectors",
         program.size(), kLoadAddress, disc->tracks().back().sectors);
 

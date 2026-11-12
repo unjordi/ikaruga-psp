@@ -32,7 +32,7 @@ correr() {  # correr <punto> <cuadro> <pulsar> <segundos>
   PROBAR_SIN_LIMITE=1 PROBAR_CFG="$dir/ikaruga.cfg" \
     "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" "$seg" "$dir/psp.log" >/dev/null 2>&1 || true
   echo "== $punto (cuadro $cuadro${kb:+, texturas_kb $kb})"
-  grep -a '^mem: start\|^mem: capture\|^memory:\|capture written' "$dir/psp.log" \
+  grep -a '^mem: \(start\|system\|program\|setup\)\|^heap-at-start\|^mem: capture\|^memory:\|capture written' "$dir/psp.log" \
     | sed 's/ guest_s .*speed/ ... speed/' || echo "FALLO: sin líneas"
   grep -a '^textures: textured' "$dir/psp.log" | tail -1 || true
 }
