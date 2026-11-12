@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <new>
+#include <cmath>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -49,7 +50,7 @@ struct Entry {
     std::uint32_t epoch = 0;    // the VRAM write epoch source_hash is valid for
     std::uint32_t used = 0;     // the last render that asked for it
     bool failed = false;
-    bool soft = false;  // prefiltered copy for minified bilinear quads
+    SoftSpec soft;  // prefiltered copy for minified bilinear quads: see soften()
 };
 
 bool g_enabled = true;
@@ -183,15 +184,16 @@ bool make_room(std::uint32_t bytes) {
 // The GE format of an entry: a soft copy of a 1-bit-alpha image needs the in-between alphas.
 int entry_format(const Entry& e) {
     const int f = ge_format(e.info);
-    return e.soft && f == GU_PSM_5551 ? GU_PSM_4444 : f;
+    return e.soft.mode != SoftSpec::kNone && f == GU_PSM_5551 ? GU_PSM_4444 : f;
 }
 
 // Minified bilinear quads: the hardware draws at 640x480 and the screen seen is that image box-
 // filtered to 480x272, so a texture shrunk on screen reaches it averaged over neighbouring texels;
 // the GE at 480x272 takes only the 4 nearest (thin strokes come out broken and too sharp: the menu
-// legend, 2.2 texels per pixel vertically). The soft copy is the image passed through a 1-2-1
-// tent in both axes, weighted by alpha (colour of transparent texels does not bleed in).
-void soften(std::vector<std::uint32_t>& rgba, int w, int h) {
+// legend, 2.2 texels per pixel vertically).
+// kTent: the image through a 1-2-1 tent in both axes, weighted by alpha (the colour of
+// transparent texels does not bleed in).
+void soften_tent(std::vector<std::uint32_t>& rgba, int w, int h) {
     std::vector<float> pm(static_cast<std::size_t>(w) * h * 4), tmp(pm.size());
     for (std::size_t i = 0; i < rgba.size(); ++i) {
         const std::uint32_t c = rgba[i];
@@ -221,6 +223,83 @@ void soften(std::vector<std::uint32_t>& rgba, int w, int h) {
                 c |= static_cast<std::uint32_t>(std::min(pm[i * 4 + k] / a + 0.5f, 255.0f)) << (8 * k);
         rgba[i] = c;
     }
+}
+
+}  // namespace
+
+SoftRect soft_rect(const SoftSpec& s) {
+    const float x0 = static_cast<float>(s.x0) * 0.25f * kSoftScaleX;
+    const float x1 = static_cast<float>(s.x1) * 0.25f * kSoftScaleX;
+    const float y0 = static_cast<float>(s.y0) * 0.25f * kSoftScaleY;
+    const float y1 = static_cast<float>(s.y1) * 0.25f * kSoftScaleY;
+    SoftRect r;
+    r.x = static_cast<int>(std::floor(x0)), r.y = static_cast<int>(std::floor(y0));
+    r.w = static_cast<int>(std::ceil(x1)) - r.x, r.h = static_cast<int>(std::ceil(y1)) - r.y;
+    return r;
+}
+
+namespace {
+
+// kRect: the w x h texture seen through the quad `s`, as the screen pixels of soft_rect(s). Each
+// pixel of the 640x480 render whose centre is inside the quad takes the bilinear sample of the
+// texture at that centre; each screen pixel is the area average of the 640x480 pixels it covers
+// (weighted by alpha for the colour; the part of the pixel outside the quad is transparent).
+void soften_rect(std::vector<std::uint32_t>& rgba, int w, int h, const SoftSpec& s) {
+    const SoftRect r = soft_rect(s);
+    const float qx0 = static_cast<float>(s.x0) * 0.25f, qx1 = static_cast<float>(s.x1) * 0.25f;
+    const float qy0 = static_cast<float>(s.y0) * 0.25f, qy1 = static_cast<float>(s.y1) * 0.25f;
+    const float u0 = static_cast<float>(s.u0) * 0.25f, u1 = static_cast<float>(s.u1) * 0.25f;
+    const float v0 = static_cast<float>(s.v0) * 0.25f, v1 = static_cast<float>(s.v1) * 0.25f;
+    // Premultiplied bilinear sample at texel coordinates (u, v), clamped at the edges.
+    const auto sample = [&](float u, float v, float out[4]) {
+        const float fu = u - 0.5f, fv = v - 0.5f;
+        const int iu = static_cast<int>(std::floor(fu)), iv = static_cast<int>(std::floor(fv));
+        const float tu = fu - static_cast<float>(iu), tv = fv - static_cast<float>(iv);
+        out[0] = out[1] = out[2] = out[3] = 0.0f;
+        for (int j = 0; j < 2; ++j)
+            for (int i = 0; i < 2; ++i) {
+                const int x = std::min(std::max(iu + i, 0), w - 1);
+                const int y = std::min(std::max(iv + j, 0), h - 1);
+                const float f = (i ? tu : 1.0f - tu) * (j ? tv : 1.0f - tv);
+                const std::uint32_t c = rgba[static_cast<std::size_t>(y) * w + x];
+                const float a = static_cast<float>(c >> 24);
+                for (int k = 0; k < 3; ++k) out[k] += f * a * static_cast<float>((c >> (8 * k)) & 0xFFu);
+                out[3] += f * a;
+            }
+    };
+    std::vector<std::uint32_t> img(static_cast<std::size_t>(r.w) * r.h);
+    const float inv_x = 1.0f / kSoftScaleX, inv_y = 1.0f / kSoftScaleY;  // 640x480 pixels per pixel
+    for (int Y = 0; Y < r.h; ++Y) {
+        const float ya = static_cast<float>(r.y + Y) * inv_y, yb = ya + inv_y;
+        for (int X = 0; X < r.w; ++X) {
+            const float xa = static_cast<float>(r.x + X) * inv_x, xb = xa + inv_x;
+            float acc[4] = {};
+            for (int j = static_cast<int>(std::floor(ya)); static_cast<float>(j) < yb; ++j) {
+                const float cy = static_cast<float>(j) + 0.5f;
+                if (cy < qy0 || cy >= qy1) continue;
+                const float wy = std::min(yb, static_cast<float>(j + 1)) - std::max(ya, static_cast<float>(j));
+                const float v = v0 + (cy - qy0) / (qy1 - qy0) * (v1 - v0);
+                for (int i = static_cast<int>(std::floor(xa)); static_cast<float>(i) < xb; ++i) {
+                    const float cx = static_cast<float>(i) + 0.5f;
+                    if (cx < qx0 || cx >= qx1) continue;
+                    const float wx = std::min(xb, static_cast<float>(i + 1)) - std::max(xa, static_cast<float>(i));
+                    const float u = u0 + (cx - qx0) / (qx1 - qx0) * (u1 - u0);
+                    float px[4];
+                    sample(u, v, px);
+                    for (int k = 0; k < 4; ++k) acc[k] += wx * wy * px[k];
+                }
+            }
+            std::uint32_t c = 0;
+            const float area = inv_x * inv_y;
+            if (acc[3] > 0.0f) {
+                c = static_cast<std::uint32_t>(std::min(acc[3] / area + 0.5f, 255.0f)) << 24;
+                for (int k = 0; k < 3; ++k)
+                    c |= static_cast<std::uint32_t>(std::min(acc[k] / acc[3] + 0.5f, 255.0f)) << (8 * k);
+            }
+            img[static_cast<std::size_t>(Y) * r.w + X] = c;
+        }
+    }
+    rgba.swap(img);
 }
 
 // Decodes, mirrors, reduces, packs and swizzles `e.info` into a new image.
@@ -262,16 +341,28 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
-    const int w = static_cast<int>(e.info.width), h = static_cast<int>(e.info.height);
+    int w = static_cast<int>(e.info.width), h = static_cast<int>(e.info.height);
+    const bool shrunk = e.soft.mode == SoftSpec::kRect && !mirror_u && !mirror_v;
+    if (shrunk) {
+        const SoftRect r = soft_rect(e.soft);
+        soften_rect(rgba, w, h, e.soft);
+        w = r.w, h = r.h;
+    } else if (e.soft.mode == SoftSpec::kTent) {
+        soften_tent(rgba, w, h);
+    }
     const int vw = mirror_u ? 2 * w : w, vh = mirror_v ? 2 * h : h;  // the mirrored image
     int fx = 1, fy = 1;
     while (vw / fx > kMaxSide) fx *= 2;
     while (vh / fy > kMaxSide) fy *= 2;
-    const int iw = vw / fx, ih = vh / fy;
+    int iw = vw / fx, ih = vh / fy;
+    if (shrunk) {  // the GE wants power-of-two sides: the image sits in the corner, the rest clear
+        int pw = 8, ph = 8;
+        while (pw < w) pw *= 2;
+        while (ph < h) ph *= 2;
+        iw = pw, ih = ph;
+    }
     const int format = entry_format(e);
     const int bpp = format == GU_PSM_8888 ? 4 : 2;
-    if (e.soft)
-        soften(rgba, w, h);
     const std::uint32_t bytes = static_cast<std::uint32_t>(iw * ih * bpp);
     if (!make_room(bytes)) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
@@ -285,7 +376,8 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
-    const auto texel = [&](int x, int y) {
+    const auto texel = [&](int x, int y) -> std::uint32_t {
+        if (shrunk && (x >= w || y >= h)) return 0;
         const int sx = x < w ? x : 2 * w - 1 - x;
         const int sy = y < h ? y : 2 * h - 1 - y;
         return rgba[static_cast<std::size_t>(sy) * w + sx];
@@ -371,13 +463,19 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
 }
 
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
-                              bool soft) {
+                              const SoftSpec& soft) {
     if (!g_enabled || !g_vram)
         return nullptr;
     ++g_stats.requests;
+    std::uint32_t soft_hash = 0;  // 23 bits of the spec: a collision needs two copies of one texture
+    if (soft.mode != SoftSpec::kNone) {
+        soft_hash = hash_bytes(reinterpret_cast<const std::uint8_t*>(&soft.x0), 16, 2166136261u);
+        soft_hash = ((soft_hash ^ soft.mode) * 16777619u) & 0x7FFFFFu;
+    }
     const std::uint64_t key = (static_cast<std::uint64_t>(tcw) << 32) | (tsp & 0x3Fu) |
                               (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u) |
-                              (soft ? 0x100u : 0u);
+                              (static_cast<std::uint64_t>(soft_hash) << 8) |
+                              (soft.mode != SoftSpec::kNone ? 0x80000000u : 0u);
     auto it = g_entries.find(key);
     if (it == g_entries.end()) {
         Entry e;

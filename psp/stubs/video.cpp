@@ -210,6 +210,8 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
         // 0 no fog; 1 drawn scaled by (1 - f) and then f * fog colour added in a second pass
         // (g_fog_vertices); 2 table-alpha fog, which replaces the colour with the fog colour.
         int fog;
+        // A kRect copy: the integer screen rectangle it covers 1:1 (w > 0 when used).
+        SoftRect rect;
     };
     std::vector<Item> items;
     items.reserve(frame.polygon_count());
@@ -218,7 +220,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             float nearest = 0.0f;
             for (std::uint32_t i = 0; i < p.count; ++i)
                 nearest = std::max(nearest, frame.vertices[p.first + i].z);
-            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0, 0});
+            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0, 0, {}});
         }
     };
     add_list(dream::render::ListType::Opaque, false, false);
@@ -246,7 +248,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             const bool mirror_v = !clamp_v && dream::render::tsp_flip_v(tsp);
             // Minified bilinear quads (more than 1.5 texels per screen pixel on an axis) take the
             // cache's prefiltered copy: see soften() in texture_psp.cpp.
-            bool soft = false;
+            SoftSpec soft;
             // Only small 1-bit-alpha images (ARGB1555, at most 16384 texels): the text the game
             // composes in VRAM. Prefiltered copies of the 3D textures would double the cache.
             const float tw = static_cast<float>(8u << (tsp >> 3 & 7u));
@@ -254,17 +256,52 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             if (g_hairlines && p.count == 4 && dream::render::tsp_filter_mode(tsp) != 0 &&
                 ((p.tcw >> 27) & 7u) == 0 && tw * th <= 16384.0f) {
                 const dream::render::Vertex* q = &frame.vertices[p.first];
+                bool minified = false;
                 for (int k : {1, 2}) {
                     const float dx = std::fabs(q[k].x - q[0].x) * kScaleX;
                     const float dy = std::fabs(q[k].y - q[0].y) * kScaleY;
                     const float du = std::fabs(q[k].u - q[0].u) * tw;
                     const float dv = std::fabs(q[k].v - q[0].v) * th;
                     if ((dx >= 1.0f && du / dx > 1.5f) || (dy >= 1.0f && dv / dy > 1.5f))
-                        soft = true;
+                        minified = true;
+                }
+                if (minified) {
+                    soft.mode = SoftSpec::kTent;
+                    // An upright quad (two x and two y, u following x and v following y) is
+                    // resampled onto its screen rectangle instead.
+                    float xl = q[0].x, xr = q[0].x, yt = q[0].y, yb = q[0].y;
+                    for (int k = 1; k < 4; ++k) {
+                        xl = std::min(xl, q[k].x), xr = std::max(xr, q[k].x);
+                        yt = std::min(yt, q[k].y), yb = std::max(yb, q[k].y);
+                    }
+                    const dream::render::Vertex *tl = nullptr, *br = nullptr;
+                    int corners = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        const bool l = std::fabs(q[k].x - xl) < 0.01f, r = std::fabs(q[k].x - xr) < 0.01f;
+                        const bool t = std::fabs(q[k].y - yt) < 0.01f, b = std::fabs(q[k].y - yb) < 0.01f;
+                        corners += (l || r) && (t || b);
+                        if (l && t) tl = &q[k];
+                        if (r && b) br = &q[k];
+                    }
+                    const auto quarter = [](float v) {
+                        return static_cast<std::int16_t>(std::lround(v * 4.0f));
+                    };
+                    if (corners == 4 && tl && br && xr - xl > 1.0f && yb - yt > 1.0f &&
+                        xr * kScaleX - xl * kScaleX < 255.0f && yb - yt < 480.0f &&
+                        br->u > tl->u && br->v > tl->v && !mirror_u && !mirror_v &&
+                        tl->u >= 0.0f && br->u <= 1.0f && tl->v >= 0.0f && br->v <= 1.0f) {
+                        soft.mode = SoftSpec::kRect;
+                        soft.x0 = quarter(xl), soft.y0 = quarter(yt);
+                        soft.x1 = quarter(xr), soft.y1 = quarter(yb);
+                        soft.u0 = quarter(tl->u * tw), soft.v0 = quarter(tl->v * th);
+                        soft.u1 = quarter(br->u * tw), soft.v1 = quarter(br->v * th);
+                        item.rect = soft_rect(soft);
+                    }
                 }
             }
             item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v, soft);
-            if (soft && item.tex)
+            if (!item.tex) item.rect = {};
+            if (soft.mode != SoftSpec::kNone && item.tex)
                 ++stats.softened;
             if (item.tex) {
                 const unsigned shading = dream::render::tsp_shading_instruction(tsp);
@@ -311,6 +348,14 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             o.colour = argb_to_abgr(v.base, use_alpha);
             o.x = v.x * kScaleX;
             o.y = v.y * kScaleY;
+            if (item.rect.w > 0) {  // the copy is the rectangle's pixels: draw it over them 1:1
+                const bool right = v.x * kScaleX > static_cast<float>(item.rect.x) + 0.5f * static_cast<float>(item.rect.w);
+                const bool bottom = v.y * kScaleY > static_cast<float>(item.rect.y) + 0.5f * static_cast<float>(item.rect.h);
+                o.x = static_cast<float>(item.rect.x + (right ? item.rect.w : 0));
+                o.y = static_cast<float>(item.rect.y + (bottom ? item.rect.h : 0));
+                o.u = right ? static_cast<float>(item.rect.w) : 0.0f;
+                o.v = bottom ? static_cast<float>(item.rect.h) : 0.0f;
+            }
             o.z = std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, 65535.0f);
             if (item.fog) {
                 const float f = std::clamp(fog_control == 1

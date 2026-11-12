@@ -57,8 +57,27 @@ void texcache_configure(bool enabled, std::uint32_t budget_bytes);
 void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
                           const std::uint32_t* palette_ram, unsigned palette_format,
                           const std::uint32_t* page_epoch = nullptr, std::uint32_t epoch = 0);
+// A prefiltered copy for a quad the screen shows minified (see soften() in texture_psp.cpp).
+//   kTent: the image through a 1-2-1 tent in both axes, drawn as usual.
+//   kRect: an axis-aligned quad, resampled the way the 640x480 render reaches a 480x272 screen
+//          (bilinear at the 640x480 pixels, box-averaged onto the screen pixels); the copy is the
+//          pixels of the quad's integer screen rectangle (soft_rect) and is drawn 1:1 over it.
+// Positions are in 640x480 pixels and texture coordinates in texels, both quantized to quarters so
+// a still quad always asks for the same copy.
+struct SoftSpec {
+    enum Mode : std::uint8_t { kNone = 0, kTent = 1, kRect = 2 };
+    Mode mode = kNone;
+    std::int16_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the quad, quarter pixels of 640x480
+    std::int16_t u0 = 0, v0 = 0, u1 = 0, v1 = 0;  // texels at x0/y0 and at x1/y1, quarter texels
+};
+constexpr float kSoftScaleX = 480.0f / 640.0f, kSoftScaleY = 272.0f / 480.0f;
+// The integer screen rectangle (480x272 pixels) a kRect quad covers.
+struct SoftRect {
+    int x = 0, y = 0, w = 0, h = 0;
+};
+SoftRect soft_rect(const SoftSpec& s);
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
-                              bool soft = false);
+                              const SoftSpec& soft = SoftSpec());
 TextureCacheStats texcache_stats();
 // Frees every cached image (the GE must be done with them); the next render decodes again.
 void texcache_release_all();
