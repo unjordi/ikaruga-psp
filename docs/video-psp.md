@@ -55,6 +55,25 @@ medir:
 
 `scripts/bateria.sh` corre solo (a) y (b), porque (c) ya es la (a) del título.
 
+## Tiras en perspectiva (pasos 40 y 41 del plan)
+
+El modo through del GE interpola u, v y color linealmente en pantalla. El PowerVR los interpola con
+1/w. En el capítulo 1, el suelo y las nubes son tiras enormes (vértices hasta x ≈ −400 000 tras escalar, con 1/w
+cerca de 0): en afín, su textura muestrea casi un texel y el cielo sale plano. Medido (cuadros 2600 y
+2700, contra Flycast): quitar esas tiras empeora el centro (no estaban descartadas); `GU_NEAREST` y
+un recorte afín a ±1024 px no cambian nada; dibujarlas con perspectiva sí.
+
+`video_draw_frame` toma cada tira con un vértice fuera de la banda ±64 px alrededor de la pantalla
+(`perspectiva=2`: además toda tira texturada con 1/w variable; no mejora de forma apreciable), recorta sus
+triángulos contra esa banda (Sutherland–Hodgman; posición y profundidad lineales, u, v y colores con
+1/w), rehace la niebla de tabla en los vértices nuevos con su 1/w y los dibuja como lista de
+triángulos en modo 3D: clip = (ndc·w, w) con matrices vista/modelo identidad y una proyección que
+lleva z/w a la misma profundidad que el camino through. La pasada de niebla de una tira opaca sin alpha
+test va sin textura (el color de entorno es uno por tira y la tira abarca muchos factores de niebla).
+Cuadros 2350/2700/3000: el centro sube 3–5 dB (cifras en `docs/plan.md`, paso 41). Coste en el 2600:
+speed 0,0846 frente a 0,0859, `draw_ms_per_render` 21,4 frente a 18,3, y el bloque libre mayor baja
+de 1088 a 1008 KB (vectores de vértices recortados).
+
 ## Qué no cubre
 
 - Todo es PPSSPP. Las dos pasadas con `EQUAL` suponen que el GE da exactamente la misma profundidad a
@@ -63,6 +82,8 @@ medir:
   solo niebla de tabla); el código está, ninguna prueba lo toca.
 - La mezcla aditiva de la segunda pasada en translúcidas es una aproximación (exacta para
   `SRC_ALPHA / INV_SRC_ALPHA` y `ONE / ONE`).
-- El centro del capítulo 1 en 2350 queda en 20,28 dB / SSIM 0,682 contra Flycast; la prueba (a) solo mira
+- El centro del capítulo 1 en 2350 queda en 22,78 dB / SSIM 0,836 contra Flycast (con las tiras en perspectiva); la prueba (a) solo mira
   las columnas (`docs/referencia-flycast.md`; pasos de la sección «Se ve como el original» del plan).
 - La región de los botones se fijó a ojo; no se barrió.
+- Tiras en perspectiva translúcidas o con alpha test con niebla: la segunda pasada usa un solo color
+  de entorno por tira (aproximación). Ninguna prueba automática mira el cielo del capítulo 1.
