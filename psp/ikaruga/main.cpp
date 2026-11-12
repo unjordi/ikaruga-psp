@@ -65,6 +65,7 @@ constexpr const char* kNoIdleSkip = "NO_IDLE_SKIP";
 // The owner's boot ROM dump (optional, next to the EBOOT): only its font is kept, the bytes
 // Flycast's HLE BIOS fills with its own font (0x100020, 536496 bytes).
 constexpr const char* kBootRom = "DC_BOOT.BIN";
+constexpr const char* kRomFontFile = "BIOSFONT.BIN";  // preferred: Flycast's reios font
 constexpr std::size_t kBootRomSize = 2u << 20;
 constexpr std::uint32_t kRomFontLo = 0x00100020u, kRomFontSize = 536496u;
 constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
@@ -456,14 +457,24 @@ int main(int argc, char** argv) {
     static std::vector<std::uint8_t> rom_font;
     {
         std::vector<std::uint8_t> rom;
-        if (host::file_read(path_in_dir(kBootRom).c_str(), rom) && rom.size() == kBootRomSize) {
+        if (host::file_read(path_in_dir(kRomFontFile).c_str(), rom) && !rom.empty() &&
+            rom.size() <= kRomFontSize) {
+            // Flycast's HLE BIOS font (resources/fonts/biosfont.bin), the one the Flycast
+            // reference shows: zero-padded to the font area as reios does.
+            rom_font.assign(kRomFontSize, 0);
+            std::copy(rom.begin(), rom.end(), rom_font.begin());
+            sys.memory.rom_font = rom_font.data();
+            sys.memory.rom_font_lo = kRomFontLo;
+            sys.memory.rom_font_size = kRomFontSize;
+            log_line("bios font: %u bytes from %s", static_cast<unsigned>(rom.size()), kRomFontFile);
+        } else if (host::file_read(path_in_dir(kBootRom).c_str(), rom) && rom.size() == kBootRomSize) {
             rom_font.assign(rom.begin() + kRomFontLo, rom.begin() + kRomFontLo + kRomFontSize);
             sys.memory.rom_font = rom_font.data();
             sys.memory.rom_font_lo = kRomFontLo;
             sys.memory.rom_font_size = kRomFontSize;
             log_line("bios font: %u bytes from %s", static_cast<unsigned>(kRomFontSize), kBootRom);
         } else {
-            log_line("bios font: none (no 2 MB %s next to the EBOOT): system text is blank", kBootRom);
+            log_line("bios font: none (no %s or 2 MB %s next to the EBOOT): system text is blank", kRomFontFile, kBootRom);
         }
     }
     if (cfg.memory)
