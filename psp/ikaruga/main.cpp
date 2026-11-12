@@ -131,6 +131,7 @@ void log_line(const char* fmt, ...) {
 //                     2: also every textured strip whose 1/w varies (docs/video-psp.md)
 //   lineas=0          draw sub-pixel untextured quads (HUD hairlines) as they are, not widened,
 //                     and minified point-sampled quads with nearest sampling
+//   mipmaps=0         upload only the base level of mipmapped textures (no GE mip chain)
 //   memoria=1         memory counter (docs/memoria-psp.md): every memoria_cada guest frames and at
 //                     the capture, a "mem:" line with the free memory and the heap peaks
 //   memoria_cada=N    frames between "mem:" lines (default 60)
@@ -156,6 +157,7 @@ struct Config {
     bool clip = true;
     bool fog = true;
     bool hairlines = true;
+    bool mipmaps = true;
     int perspective = 1;
     bool memory = false;
     std::uint32_t memory_every = kLogEvery;
@@ -224,6 +226,8 @@ Config read_config(const std::vector<ikaruga::host::CfgEntry>& entries) {
             cfg.fog = value != "0";
         else if (key == "lineas")
             cfg.hairlines = value != "0";
+        else if (key == "mipmaps")
+            cfg.mipmaps = value != "0";
         else if (key == "perspectiva")
             cfg.perspective = static_cast<int>(number());
         else if (key == "memoria")
@@ -427,6 +431,7 @@ int main(int argc, char** argv) {
     host::video_set_fog(cfg.fog);
     host::video_set_hairlines(cfg.hairlines);
     host::video_set_perspective(cfg.perspective);
+    host::texcache_set_mipmaps(cfg.mipmaps);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     host::input_config(cfg_entries);
     const std::size_t presses = host::input_script(cfg.presses);
