@@ -62,6 +62,11 @@ struct IdleEntry {
 };
 constexpr IdleEntry kIdle[] = {{0x0C0370BAu, "katana_wait_vblank"}};
 constexpr const char* kNoIdleSkip = "NO_IDLE_SKIP";
+// The owner's boot ROM dump (optional, next to the EBOOT): only its font zone is kept
+// (ROM bytes 0x100020..0x182fd0, 536496 bytes; the last non-zero byte of the dump is 0x182fcf).
+constexpr const char* kBootRom = "DC_BOOT.BIN";
+constexpr std::size_t kBootRomSize = 2u << 20;
+constexpr std::uint32_t kRomFontLo = 0x00100020u, kRomFontSize = 536496u;
 constexpr std::uint64_t kLogEvery = 60;               // guest frames between log lines
 constexpr double kGuestHz = 200e6;                    // SH-4 clock the guest cycles count
 
@@ -121,6 +126,8 @@ void log_line(const char* fmt, ...) {
 //   texturas_kb=N     cap of the texture cache in KB (default 2560)
 //   recorte=0         ignore the polygons' user tile clip (modes 2 and 3)
 //   niebla=0          draw without fog
+//   lineas=0          draw sub-pixel untextured quads (HUD hairlines) as they are, not widened,
+//                     and minified point-sampled quads with nearest sampling
 //   memoria=1         memory counter (docs/memoria-psp.md): every memoria_cada guest frames and at
 //                     the capture, a "mem:" line with the free memory and the heap peaks
 //   memoria_cada=N    frames between "mem:" lines (default 60)
@@ -145,6 +152,7 @@ struct Config {
     std::uint32_t texture_kb = 2560;
     bool clip = true;
     bool fog = true;
+    bool hairlines = true;
     bool memory = false;
     std::uint32_t memory_every = kLogEvery;
 };
@@ -210,6 +218,8 @@ Config read_config(const std::vector<ikaruga::host::CfgEntry>& entries) {
             cfg.clip = value != "0";
         else if (key == "niebla")
             cfg.fog = value != "0";
+        else if (key == "lineas")
+            cfg.hairlines = value != "0";
         else if (key == "memoria")
             cfg.memory = value != "0";
         else if (key == "memoria_cada")
@@ -409,6 +419,7 @@ int main(int argc, char** argv) {
     host::video_set_depth_test(cfg.depth);
     host::video_set_clip(cfg.clip);
     host::video_set_fog(cfg.fog);
+    host::video_set_hairlines(cfg.hairlines);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
     host::input_config(cfg_entries);
     const std::size_t presses = host::input_script(cfg.presses);
@@ -445,6 +456,22 @@ int main(int argc, char** argv) {
     const auto region = dream::hle::Region::Japan;
     bios.set_locale(dream::hle::Language::English, region, dream::hle::broadcast_for(region));
     sys.install();
+    // The ROMFONT syscall answers FONTROM_ADDRESS 0xA0100020, in the boot ROM, and the game reads
+    // the glyphs from there (the Japanese menu legend). There is no boot ROM image on the PSP
+    // (DREAM_NO_BIOS_IMAGE): with the owner's dump next to the EBOOT, only its font is kept.
+    static std::vector<std::uint8_t> rom_font;
+    {
+        std::vector<std::uint8_t> rom;
+        if (host::file_read(path_in_dir(kBootRom).c_str(), rom) && rom.size() == kBootRomSize) {
+            rom_font.assign(rom.begin() + kRomFontLo, rom.begin() + kRomFontLo + kRomFontSize);
+            sys.memory.rom_font = rom_font.data();
+            sys.memory.rom_font_lo = kRomFontLo;
+            sys.memory.rom_font_size = kRomFontSize;
+            log_line("bios font: %u bytes from %s", static_cast<unsigned>(kRomFontSize), kBootRom);
+        } else {
+            log_line("bios font: none (no 2 MB %s next to the EBOOT): system text is blank", kBootRom);
+        }
+    }
     if (cfg.memory)
         log_memory_counter("system", 0);
     std::vector<std::uint8_t> flag;
@@ -611,9 +638,9 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
-            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " texture_renders %"
+            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " hairlines %" PRIu32 " minified %" PRIu32 " softened %" PRIu32 " texture_renders %"
                 PRIu64 " last_texture_target 0x%06" PRIx32 " fb_w_ctrl 0x%08" PRIx32
-                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, texture_renders,
+                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, st.hairlines, st.minified, st.softened, texture_renders,
                 texture_target, pvr.reg(0x048), pvr.reg(0x060));
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32

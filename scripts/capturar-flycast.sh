@@ -15,6 +15,13 @@
 # Output in DIR (default build/flycast/serie): png/f%05d.png (640x480), p480/f%05d.png (480x272,
 # box filter, whole screen, as comparar-titulo.sh scales PC), tiempos.txt ("index seconds"), and
 # pulsos.txt (the presses actually sent, with their seconds after the window appeared).
+# FLYCAST_BIOS=<dir with dc_boot.bin and dc_flash.bin> (the owner's real Dreamcast BIOS) is copied
+# into that data directory (DIR/xdg/data/flycast) so Flycast boots with it; without it Flycast uses
+# its replacement BIOS (reios), whose font is not the console's (docs/referencia-flycast.md). The
+# real BIOS plays its boot animation first: the recording and the presses start
+# FLYCAST_BIOS_RETRASO seconds after the window appears (default 9.7, measured: the ESP logo fades
+# in 97 frames later at 10 fps), so the series indices and the scene windows of
+# scripts/escenas-flycast.sh are the same as without the BIOS.
 # Default P: the presses of test-psp-geometria.sh; S: 60; F: 10.
 # Host needs: flatpak with org.flycast.Flycast//stable, xvfb-run, xdotool, ffmpeg, python3-PIL.
 set -euo pipefail
@@ -43,7 +50,15 @@ flatpak info org.flycast.Flycast//stable >/dev/null 2>&1 || {
   echo "missing org.flycast.Flycast//stable" >&2; exit 1; }
 OUT="$(realpath -m "${salida:-$REPO/build/flycast/serie}")"
 rm -rf "$OUT/png" "$OUT/p480" "$OUT/xdg"
-mkdir -p "$OUT/png" "$OUT/p480" "$OUT/xdg/config" "$OUT/xdg/data"
+mkdir -p "$OUT/png" "$OUT/p480" "$OUT/xdg/config" "$OUT/xdg/data/flycast"
+RETRASO=0
+if [[ -n "${FLYCAST_BIOS:-}" ]]; then
+  RETRASO="${FLYCAST_BIOS_RETRASO:-9.7}"
+  for f in dc_boot.bin dc_flash.bin; do
+    [[ -f "$FLYCAST_BIOS/$f" ]] || { echo "capturar-flycast: $FLYCAST_BIOS/$f missing" >&2; exit 1; }
+    cp "$FLYCAST_BIOS/$f" "$OUT/xdg/data/flycast/$f"
+  done
+fi
 
 cat > "$OUT/correr.sh" <<'SH'
 #!/bin/sh
@@ -60,6 +75,7 @@ for i in $(seq 1 300); do
   sleep 0.1
 done
 [ -n "$w" ] || { echo "no Flycast window" >&2; kill $pid; exit 1; }
+sleep "$RETRASO"
 t0=$(date +%s.%N)
 ffmpeg -loglevel error -f x11grab -draw_mouse 0 -framerate "$FPS" -video_size 640x480 \
   -i "$DISPLAY" -t "$SEGUNDOS" "$OUT/png/f%05d.png" &
@@ -86,7 +102,7 @@ kill $pid 2>/dev/null
 wait $pid 2>/dev/null
 exit 0
 SH
-export OUT CHD PRESSES SEGUNDOS="$segundos" FPS="$fps"
+export OUT CHD PRESSES RETRASO SEGUNDOS="$segundos" FPS="$fps"
 timeout $(( segundos + 120 )) xvfb-run -d -s '-screen 0 640x480x24' sh "$OUT/correr.sh"
 
 python3 - "$OUT" "$fps" <<'PY'

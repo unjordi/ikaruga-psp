@@ -1,0 +1,40 @@
+Boot ROM font without a boot ROM image (DREAM_NO_BIOS_IMAGE): the ROMFONT syscall answers
+FONTROM_ADDRESS 0xA0100020 and games read the glyphs straight from there (Ikaruga composes the
+Japanese menu legend with them). The host may hand over those bytes (DcMemory::rom_font); reads
+inside them come from it, the rest of the ROM still reads zero and writes are dropped.
+Effect on PC: none (the branch only exists with the macro).
+
+diff --git a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
+--- a/runtime/include/dream/runtime/mem/dc_memory.h
++++ b/runtime/include/dream/runtime/mem/dc_memory.h
+@@ -151,6 +151,12 @@
+     std::uint32_t vram_page_epoch[kVramSize >> kVramPageShift] = {};
+     std::uint8_t* aram() noexcept { return aram_.get(); }
+     std::uint8_t* bios() noexcept { return bios_.get(); }
++    // Without a boot ROM image (DREAM_NO_BIOS_IMAGE) the host may still hand over the part of it
++    // games read directly: the font the ROMFONT syscall points at (FONTROM_ADDRESS 0xA0100020).
++    // `rom_font` holds boot ROM bytes [rom_font_lo, rom_font_lo + rom_font_size); reads there
++    // come from it, the rest of the ROM still reads zero. The host keeps the buffer alive.
++    const std::uint8_t* rom_font = nullptr;
++    std::uint32_t rom_font_lo = 0, rom_font_size = 0;
+     std::uint8_t* flash() noexcept { return flash_.get(); }
+     FaultLog& faults() noexcept { return faults_; }
+     // Called before every device (MMIO) access: the runtime advances the virtual clock to the
+diff --git a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
+--- a/runtime/src/mem/dc_memory.cpp
++++ b/runtime/src/mem/dc_memory.cpp
+@@ -188,7 +188,13 @@
+             const std::uint32_t off = phys & 0x03FFFFFFu;
+             if (off < 0x00200000u) {
+ #ifdef DREAM_NO_BIOS_IMAGE
+-                // No boot ROM image is loaded (HLE BIOS): reads give zero, writes are dropped.
++                // No boot ROM image is loaded (HLE BIOS): reads give zero, writes are dropped,
++                // except reads of the font the host handed over (rom_font).
++                if (!write && rom_font && off >= rom_font_lo &&
++                    off + size <= rom_font_lo + rom_font_size) {
++                    t.kind = Target::kBytes;
++                    t.bytes = const_cast<std::uint8_t*>(rom_font) + (off - rom_font_lo);
++                }
+                 return t;
+ #else
+                 t.kind = Target::kBytes;

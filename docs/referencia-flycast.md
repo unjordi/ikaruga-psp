@@ -21,7 +21,7 @@ ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc
   la ventana. Es reloj de pared, no cuadro exacto: por eso se alinea por escena (abajo).
 - Config y datos de Flycast en `DIR/xdg/{config,data}` (`XDG_CONFIG_HOME`/`XDG_DATA_HOME`); la
   configuración global de la cachy no se toca. Cada corrida empieza sin archivo de VMU: el juego
-  muestra «データファイルの作成に成功しました» y sigue. Sin BIOS: Flycast usa reios, región Japón.
+  muestra «データファイルの作成に成功しました» y sigue. Con `FLYCAST_BIOS=<dir con dc_boot.bin y dc_flash.bin>` los copia a `DIR/xdg/data/flycast` y Flycast arranca con esa BIOS (el log ya no dice «Did not load BIOS, using reios»); sin la variable usa reios, región Japón.
 - Cada cuadro grabado se escala a 480×272 con x·480/640, y·272/480, pantalla completa, filtro de
   caja (PIL `Image.BOX`).
 - El disco se copia a `build/flycast/Ikaruga.chd` (el original puede ser de solo lectura; `FLYCAST_CHD`
@@ -35,8 +35,19 @@ ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc
 `comparar-flycast.sh --captura …` la graba sola (≈1 min, un solo Flycast):
 
 ```
-scripts/capturar-flycast.sh build/flycast/Ikaruga.chd --segundos 60 --salida build/flycast/ref
+FLYCAST_BIOS=build/bios scripts/capturar-flycast.sh build/flycast/Ikaruga.chd --segundos 60 --salida build/flycast/ref
 ```
+
+**La referencia es Flycast con la BIOS real del usuario** (`dc_boot.bin` y `dc_flash.bin` de su
+Dreamcast, copiados a `build/bios/`, ignorada por git; nunca en el repositorio). Motivo: el juego
+dibuja la leyenda del menú con la fuente de la boot ROM, y sin BIOS Flycast usa reios, cuya fuente no
+es la de la consola; una referencia sin BIOS daría por buena una fuente que el juego real no tiene.
+La BIOS real reproduce primero su animación de arranque (logo Dreamcast y SEGA, ≈ 9,7 s más en la
+ventana de Flycast que con reios, medido: el logo de ESP aparece 97 cuadros más tarde a 10 fps), por
+eso `capturar-flycast.sh` espera `FLYCAST_BIOS_RETRASO` s (9,7) antes de grabar y de mandar las
+pulsaciones, y los índices de la serie y las ventanas de `escenas-flycast.sh` quedan iguales. El
+EBOOT recibe la misma BIOS con `PROBAR_BIOS=<dc_boot.bin>`; `test-psp-igual-pc*.sh` corren sin ella
+(el PC recompilado no tiene fuente).
 
 Las ventanas de índices de cada escena están en `scripts/escenas-flycast.sh`, fijadas a ojo sobre
 los mosaicos de la serie y con margen:
@@ -188,8 +199,8 @@ satélite (diferencias 3, 5 y 6 de arriba). Lo atacan los pasos de la sección �
   se midió en cuántos cuadros de juego cae cada pulsación respecto a la PSP. Dos grabaciones dieron los
   mismos índices; no hay más de dos.
 - La serie son 10 capturas por segundo: un instante corto puede caer entre dos.
-- Flycast sin BIOS (reios) y región Japón; no se probó la rama `md5fix` ni un BIOS real. Un error de
-  reios en la parte de juego no lo distinguiría de un error de la PSP.
+- Flycast con la BIOS real del usuario (una sola BIOS, la de su consola) y región Japón; no se probó
+  la rama `md5fix`. El retraso de arranque de la BIOS (9,7 s) es una constante medida una vez.
 - La IoU de geometría (0,98) es una medida gruesa: el campo ocupa casi la misma área en los dos.
 - La detección de «escena no encontrada» solo cubre una ventana cortada por un borde o fuera de la
   serie; una ventana que contiene otra escena parecida pasa como cualquier comparación y la

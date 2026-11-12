@@ -25,6 +25,9 @@ struct VideoStats {
     std::uint32_t dropped = 0;  // strips not drawn because the display list was full
     std::uint32_t clip_inside = 0, clip_outside = 0;  // strips drawn under user clip mode 2 / 3
     std::uint32_t fogged = 0;  // strips drawn with fog
+    std::uint32_t hairlines = 0;  // sub-pixel untextured quads widened to one pixel
+    std::uint32_t minified = 0;   // point-sampled quads sampled bilinearly (minified)
+    std::uint32_t softened = 0;   // minified bilinear quads given a prefiltered texture
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
@@ -41,6 +44,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                             const dream::render::FogSettings* fog = nullptr);
 // Off: polygons are drawn without fog.
 void video_set_fog(bool enabled);
+void video_set_hairlines(bool enabled);
 // The buffer on screen as packed RGB888, top row first.
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 

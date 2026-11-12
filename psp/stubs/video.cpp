@@ -69,6 +69,7 @@ bool g_enabled = true;
 bool g_depth = true;
 bool g_clip = true;
 bool g_fog = true;
+bool g_hairlines = true;
 std::vector<GeVertex> g_fog_vertices;  // second pass of fogged strips
 std::uint32_t g_front = kColourBytes;  // eDRAM offset of the buffer on screen
 std::uint32_t g_back = 0;
@@ -156,6 +157,7 @@ int clip_rects(const dream::render::Polygon& p, int rects[4][4]) {
 
 void video_set_clip(bool enabled) { g_clip = enabled; }
 void video_set_fog(bool enabled) { g_fog = enabled; }
+void video_set_hairlines(bool enabled) { g_hairlines = enabled; }
 
 bool video_init() {
     sceGuInit();
@@ -242,7 +244,28 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             const bool clamp_v = dream::render::tsp_clamp_v(tsp) || !tiles;
             const bool mirror_u = !clamp_u && dream::render::tsp_flip_u(tsp);
             const bool mirror_v = !clamp_v && dream::render::tsp_flip_v(tsp);
-            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v);
+            // Minified bilinear quads (more than 1.5 texels per screen pixel on an axis) take the
+            // cache's prefiltered copy: see soften() in texture_psp.cpp.
+            bool soft = false;
+            // Only small 1-bit-alpha images (ARGB1555, at most 16384 texels): the text the game
+            // composes in VRAM. Prefiltered copies of the 3D textures would double the cache.
+            const float tw = static_cast<float>(8u << (tsp >> 3 & 7u));
+            const float th = static_cast<float>(8u << (tsp & 7u));
+            if (g_hairlines && p.count == 4 && dream::render::tsp_filter_mode(tsp) != 0 &&
+                ((p.tcw >> 27) & 7u) == 0 && tw * th <= 16384.0f) {
+                const dream::render::Vertex* q = &frame.vertices[p.first];
+                for (int k : {1, 2}) {
+                    const float dx = std::fabs(q[k].x - q[0].x) * kScaleX;
+                    const float dy = std::fabs(q[k].y - q[0].y) * kScaleY;
+                    const float du = std::fabs(q[k].u - q[0].u) * tw;
+                    const float dv = std::fabs(q[k].v - q[0].v) * th;
+                    if ((dx >= 1.0f && du / dx > 1.5f) || (dy >= 1.0f && dv / dy > 1.5f))
+                        soft = true;
+                }
+            }
+            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v, soft);
+            if (soft && item.tex)
+                ++stats.softened;
             if (item.tex) {
                 const unsigned shading = dream::render::tsp_shading_instruction(tsp);
                 const bool ignore_ta = dream::render::tsp_ignore_texture_alpha(tsp) != 0;
@@ -303,6 +326,68 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                     o.colour = scale_rgb(base, 1.0f - f);
                     q.colour = (o.colour & 0xFF000000u) | (scale_rgb(fog_colour, f) & 0x00FFFFFFu);
                 }
+            }
+        }
+    }
+    // Hairlines: the HUD draws its lines (the chain boxes, the frames) as untextured quads one
+    // pixel thick at 640x480. Scaled to 480x272 they are 0.57-0.75 px thick and the GE, which
+    // fills only pixels whose centre is inside, drops most of them (dots, or nothing). A quad
+    // (parallelogram strip) thinner than a pixel on screen is widened to one pixel about its
+    // centre line, which is what the hardware's 640x480 image box-filtered down shows.
+    if (g_hairlines) {
+        for (const Item& item : items) {
+            const auto& p = *item.poly;
+            if (p.count != 4 || item.tex)
+                continue;
+            GeVertex* q = &g_vertices[p.first];
+            const float ax = q[1].x - q[0].x, ay = q[1].y - q[0].y;
+            const float bx = q[2].x - q[0].x, by = q[2].y - q[0].y;
+            if (std::fabs(q[3].x - (q[1].x + bx)) > 0.25f || std::fabs(q[3].y - (q[1].y + by)) > 0.25f)
+                continue;  // not a parallelogram
+            const bool a_long = ax * ax + ay * ay >= bx * bx + by * by;
+            const float lx = a_long ? ax : bx, ly = a_long ? ay : by;
+            const float sx = a_long ? bx : ax, sy = a_long ? by : ay;
+            const float len = std::sqrt(lx * lx + ly * ly);
+            if (len < 1.0f)
+                continue;
+            const float nx = -ly / len, ny = lx / len;
+            const float d = sx * nx + sy * ny;
+            const float t = std::fabs(d);
+            if (t >= 1.0f)
+                continue;
+            const float e = (1.0f - t) * 0.5f * (d < 0.0f ? -1.0f : 1.0f);
+            // q[0] and the far end of the long edge are one side; the other two the other side.
+            const int far = a_long ? 1 : 2, other = a_long ? 2 : 1;
+            for (int i : {0, far}) { q[i].x -= e * nx; q[i].y -= e * ny; }
+            for (int i : {other, 3}) { q[i].x += e * nx; q[i].y += e * ny; }
+            if (item.fog == 1)
+                for (int i = 0; i < 4; ++i) {
+                    g_fog_vertices[p.first + i].x = q[i].x;
+                    g_fog_vertices[p.first + i].y = q[i].y;
+                }
+            ++stats.hairlines;
+        }
+    }
+    // Minified point-sampled sprites: the hardware draws at 640x480 and the image is seen box-
+    // filtered to 480x272; nearest sampling straight at 480x272 skips texel rows and columns (the
+    // HUD's "CHAIN STATUS", 32 texel rows in 18 pixels, loses its strokes). A point-sampled quad
+    // with more than 1.25 texels per screen pixel along either axis is sampled bilinearly.
+    if (g_hairlines) {
+        for (Item& item : items) {
+            const auto& p = *item.poly;
+            if (p.count != 4 || !item.tex || item.filter != GU_NEAREST)
+                continue;
+            const GeVertex* q = &g_vertices[p.first];
+            float worst = 0.0f;
+            for (int k : {1, 2}) {
+                const float dx = std::fabs(q[k].x - q[0].x), dy = std::fabs(q[k].y - q[0].y);
+                const float du = std::fabs(q[k].u - q[0].u), dv = std::fabs(q[k].v - q[0].v);
+                if (dx >= 1.0f) worst = std::max(worst, du / dx);
+                if (dy >= 1.0f) worst = std::max(worst, dv / dy);
+            }
+            if (worst > 1.25f) {
+                item.filter = GU_LINEAR;
+                ++stats.minified;
             }
         }
     }

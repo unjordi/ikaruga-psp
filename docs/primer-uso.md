@@ -83,6 +83,13 @@ distinto: el EBOOT la toma de `argv[0]`):
 | `EBOOT.PBP` | ≈14 MB |
 | `1ST_READ.BIN` | 1 027 892 B |
 | `DISCO.ISO` | 1 032 499 200 B |
+| `DC_BOOT.BIN` (opcional) | 2 097 152 B |
+
+`DC_BOOT.BIN` es el volcado de la boot ROM de tu propia Dreamcast (`dc_boot.bin`); no se incluye en el
+repositorio. El juego dibuja la leyenda del menú con la fuente de esa ROM (syscall ROMFONT, 0xA0100020);
+el EBOOT lee el archivo al arrancar, guarda solo la zona de la fuente (ROM 0x100020–0x182fd0, 536 496 B)
+y libera el resto. Sin él el juego corre igual y esa leyenda sale en blanco (el log dice
+`bios font: none`). Las pruebas lo copian con `PROBAR_BIOS=<dc_boot.bin>`.
 
 Total ≈ 999 MiB; cabe en FAT32 (ningún archivo pasa de 4 GiB). El EBOOT crea `VMU.BIN` (la tarjeta
 de memoria, 128 KiB) e `ikaruga.log` en la misma carpeta. `ikaruga.cfg` es opcional.

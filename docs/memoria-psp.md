@@ -75,6 +75,8 @@ nada. Orden de recortes del plan: 1) Boot ROM — hecho; 2) código frío a
 agrega candidatos que el plan no lista, sin aplicar: la copia de `1ST_READ.BIN` (0,98), la pila
 (4,00 reservados) y la lista del GE (1,0).
 
+Con la fuente de la BIOS (`DC_BOOT.BIN` junto al EBOOT) el heap en uso sube 0,51 MiB (la zona de la fuente, 536 496 B) y el bloque libre mayor del capítulo 1 baja de 1,64 a 1,13 MiB.
+
 ## Con `texturas_kb` distinto (cuadro 2600)
 
 | `texturas_kb` | `bytes` de la caché | `in_use` pico | arena | heap libre sin pedir |
