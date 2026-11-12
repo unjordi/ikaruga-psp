@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-11; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Investigación de los pasos abiertos del plan
 
 Propósito: contestar con evidencia las preguntas abiertas de `docs/plan.md` para que cada paso quede
@@ -340,7 +342,7 @@ diferencia.
 `--no-audio`/`--audio` solo deciden si la salida va al dispositivo
 (`third_party/dream-recomp/runtime/src/aica/aica.cpp`, `Aica::sample_tick`: `arm.run`,
 `step_timers`, `mixer.sample` se llaman siempre). No hay `perf` en la máquina (ya anotado en
-`docs/medicion-pc.md:90`). Medí lo que sí se puede: tres corridas de 6000 cuadros con cada opción y el
+`docs/mediciones/medicion-pc.md:90`). Medí lo que sí se puede: tres corridas de 6000 cuadros con cada opción y el
 reporte del AICA.
 
 ```
@@ -359,7 +361,7 @@ done; done
 - Histograma de PC del ARM: las 11 direcciones más frecuentes son `0x1d10–0x1d48` y `0xd60/0xd64`;
   juntas son la gran mayoría de las muestras. Es un **bucle de espera del driver de sonido** (gira
   esperando el FIQ del timer), no trabajo.
-- La parte del AICA en el tiempo de host sigue siendo la de `docs/medicion-pc.md:117-129`: ≈17 %
+- La parte del AICA en el tiempo de host sigue siendo la de `docs/mediciones/medicion-pc.md:117-129`: ≈17 %
   (mezclador 10,8 %, de ello DSP 6,8 %; ARM7 5,1 %).
 
 **Propuesta para el plan.** (b) **Fundir 54 en 55** y hacerlo concreto:
@@ -564,7 +566,7 @@ paneles) aplica a Steam, no al Dreamcast: en Dreamcast TATE es pantalla completa
   predicción por conteo de escalones, no algo visto.
 - **Paso 47**: no hay build `double` ni build sin FTZ en la máquina; la respuesta es por argumento,
   no por medida.
-- **Paso 54**: sin `perf`; el reparto del costo del AICA es el de `docs/medicion-pc.md`, no lo volví a
+- **Paso 54**: sin `perf`; el reparto del costo del AICA es el de `docs/mediciones/medicion-pc.md`, no lo volví a
   medir. Que el histograma del ARM sea un bucle de espera es lectura de las direcciones, no
   desensamblado (no pude desensamblar ARM con el `llvm-objdump` de la máquina).
 - **Paso 56**: el muestreo es por ciclos del guest, no por tiempo de host: dice dónde está el guest,
@@ -580,7 +582,7 @@ paneles) aplica a Steam, no al Dreamcast: en Dreamcast TATE es pantalla completa
   quedó en `build/investigacion-evidencia/` de este worktree, que el arnés borra. La copia del CHD
   que usó Flycast también está ahí (fuera del repo, gitignored).
 - **Rama**: el arnés me puso en `axon/reglas-fijas-de-este-proyecto-ap-ygbpge` (avanzada a
-  `origin/develop` 24d2d31), no en `docs/investigacion-pendientes` como pedía la tarea.
+  `origin/develop` 24d2d31), no en `docs/mediciones/investigacion-pendientes.md` como pedía la tarea.
 
 ## Revisión de los 85 pasos del plan, uno por uno
 
@@ -623,7 +625,7 @@ contradiga.
 | 30 memoria real del EBOOT | ⬜ | no aplica (sin PPSSPP) |
 | 31 limpieza del código | ⬜ | sin cambio |
 | 32 limpieza de los docs | ⬜ | añadir este documento al índice cuando se haga |
-| 33 `scripts/armar-docs.sh` | ⬜ | sin cambio |
+| 33 `armar-docs.sh` | ⬜ | sin cambio |
 | 34 batería de imagen contra Flycast | ⬜ | ojo: el desfase de un cuadro (§36) y la VMU (§37) afectan a las comparaciones |
 | 35 develop contra Flycast escena por escena | ⬜ | sin cambio; es donde se comprueban 36b, 40 y 41 |
 | 36 centro del capítulo 1 | ⬜ | **contestado en parte**: partir en 36a–d (§36) |

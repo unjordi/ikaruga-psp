@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-06; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Revisión: diseño vs. medido, y optimizaciones posibles para ikaruga-psp
 
 > **Revisión (2026-11-06 10:3x):** CONFIRMADO por segunda mano: `fesetround` de newlib-psp es un stub (`jr ra; li v0,-134`), así que el modo de redondeo del guest no se aplica; FIPR/FTRV acumulan en `double` (`runtime/include/dream/runtime/sh4/ops.h:338-355`) y el ELF tiene 6 328 llamadas a `__muldf3`/`__adddf3`. Sin repetir: que `read32` a `-Os` llame a `memcpy` (SEGÚN este documento). Lo citado de `animal_forest_psp` ya no se puede verificar (no se conserva ese clon).
@@ -28,7 +30,7 @@ se borrara de la cachy; lo que cito de él es SEGÚN esa lectura y ya no se pued
    `float` redondean distinto que en el Dreamcast y en el PC. `repo/patches/dream-recomp/README.md` afirma lo contrario.
 3. **El runtime se compila a `-Os` junto con el generado, y a `-Os` cada `read32` de RAM hace `jal resolve` + `jal
    memcpy` de la libc para copiar 4 bytes** (CONFIRMADO: `elf-Os` `DcMemory::read32` 0x0880a4a0, instrucciones en
-   0x880a54c y 0x880a56c). El runtime a `-O2` cuesta +85 KB (SEGÚN `repo/docs/tamano-psp.md` §2: 486 785 B contra
+   0x880a54c y 0x880a56c). El runtime a `-O2` cuesta +85 KB (SEGÚN `repo/docs/mediciones/tamano-psp.md` §2: 486 785 B contra
    401 579 B). Es el arreglo más barato de toda la lista.
 4. **Con el idle-skip, el gameplay en PC queda en 42 % `DcMemory` + 29 % AICA + 17 % código generado** (CONFIRMADO:
    perfil nuevo de esta revisión, §1.4). El AICA a 44,1 kHz (un evento del scheduler por muestra, DSP de 128 pasos por
@@ -393,7 +395,7 @@ que la caché casi no se renueva. Diseño SEGÚN la pieza 3 del diseño (`docs/p
 **B8. Saltar el dibujo de algunos cuadros** (no la lógica): con la emulación por debajo de tiempo real, decodificar y
 dibujar uno de cada N renders ahorra B5+GE. La rotación TATE (diseño §4) cuesta cero en la conversión de vértices.
 
-**B9. Audio y Media Engine.** Lo que `shar-psp-engine` midió en hardware (SEGÚN `docs/research/media-engine.md`): el
+**B9. Audio y Media Engine.** Lo que `shar-psp-engine` midió en hardware (SEGÚN `dream-recomp:docs/research/media-engine.md`): el
 ME no tiene VFPU ni E/S, su caché no es coherente con la del núcleo principal (toda entrega exige *flush* de un lado y
 dirección sin caché `+0x40000000` del otro, `:18`), PPSSPP no ejecuta código del ME (`:21`), y tareas chicas no ganan
 (partículas y culling, `:41-42`). Para el AICA en el ME eso implica: ARAM compartida sin caché en uno de los dos lados

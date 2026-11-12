@@ -1,8 +1,8 @@
-# Memoria real del EBOOT (paso 34)
+# Memoria real del EBOOT
 
 Medido en PPSSPP (PSP con `MEMSIZE=1`), build `mix` (runtime `-O2`, generado `-Os`, `float`), con
 la clave `memoria=1` de `ikaruga.cfg`. Unidades en MiB (1 MiB = 1 048 576 bytes, como el
-presupuesto del plan). Es una foto: PPSSPP no es la consola (ver «Qué no dice esta medición»).
+presupuesto del plan). PPSSPP no es la consola (ver «Qué no dice esta medición»).
 
 ## Cómo se mide
 
@@ -19,7 +19,7 @@ los dispositivos, cada `memoria_cada` cuadros —60 por omisión— y al captura
 al sistema con `sbrk`, `in_use` = lo que el programa tiene dentro) y los máximos vistos; el pico se
 muestrea en cada cuadro y al terminar cada render. Sin `memoria=1` no hay ninguna de esas lecturas.
 La línea `heap-at-start` mide el heap entero antes de que el guest pida nada (sonda de `malloc`);
-la `memory:` del captura es la sonda de bloque mayor de antes. El tamaño de la imagen sale de
+la línea `memory:` de la captura es la sonda de bloque mayor. El tamaño de la imagen sale de
 `psp-size` en el build.
 
 ## Qué hay en la memoria
@@ -55,11 +55,11 @@ alcanza antes del cuadro 2520 y no sube hasta el 2600. El «Resto del heap» es 
   sobre la suma del presupuesto (≈49).** PPSSPP no lo nota porque da más: imagen 14,13 + pila 4,00 +
   heap 37,11 + 1,0 de margen del heap (`PSP_HEAP_SIZE_KB(-1024)`) = 56,24 MiB (≈ los 56 MiB de
   0x08800000–0x0C000000, inferido). Si la consola da 52, el capítulo 1 no cabe como está.
-- **Pila:** 4,00 MiB reservados contra «pilas, listas GE y newlib 1–2». No medí cuánta usa.
+- **Pila:** 4,00 MiB reservados contra «pilas, listas GE y newlib 1–2». No se midió cuánta usa.
 - **Data + bss:** 1,57 contra 0,6; casi todo es la lista del GE (1,0) y la tabla de despacho (0,5).
 - **Resto del heap en el capítulo 1: 3,48 contra «hasta 2» de decodificación.** Constante con
   `texturas_kb` 1024/2560/4096 (3,48/3,48/3,49), o sea que no depende de la caché.
-- **Boot ROM:** ya no se reserva (patch 0008); el primer recorte del plan está hecho y no queda por ahí.
+- **Boot ROM:** no se reserva (patch 0008); por ahí no queda nada que recortar.
 - **Copia de `1ST_READ.BIN`:** 0,98 MiB que el presupuesto no tiene (`main` guarda el vector después
   de copiarlo a la RAM del guest).
 - **Fragmentación:** 1,6–2,1 MiB libres dentro del arena en trozos que no sirven para un bloque grande.
@@ -69,8 +69,8 @@ alcanza antes del cuadro 2520 y no sube hasta el 2600. El «Resto del heap» es 
 
 En el pico del capítulo 1 queda 1,76 MiB de heap sin pedir y el bloque libre mayor es 1,80 MiB
 (`< 2`); sumando los 0,75 MiB que el kernel deja fuera del heap son 2,5 MiB en PPSSPP, y
-con un techo de 52 MiB es −1,48. Con `texturas_kb=4096` el margen baja a 0,89 MiB. No se recortó
-nada en esta fila. Orden de recortes del plan (paso 34): 1) Boot ROM — ya hecha; 2) código frío a
+con un techo de 52 MiB es −1,48. Con `texturas_kb=4096` el margen baja a 0,89 MiB. No se ha recortado
+nada. Orden de recortes del plan: 1) Boot ROM — hecho; 2) código frío a
 `-Os` o a overlay; 3) ARAM solo si el audio es HLE; RAM y VRAM del guest no se tocan. La medición
 agrega candidatos que el plan no lista, sin aplicar: la copia de `1ST_READ.BIN` (0,98), la pila
 (4,00 reservados) y la lista del GE (1,0).

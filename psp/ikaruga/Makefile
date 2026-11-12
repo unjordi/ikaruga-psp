@@ -61,7 +61,7 @@ obj/rt/%.o: $(RT)/%.cpp
 	$(CXX) $(OPT_RT) $(CXXFLAGS) -c $< -o $@
 
 # -mno-explicit-relocs: with %hi/%lo pairs psp-as does not finish on the 45 MB generated unit
-# (timings in docs/tamano-psp.md §4).
+# (timings in docs/mediciones/tamano-psp.md §4).
 GEN_FLAGS := -mno-explicit-relocs
 
 obj/gen/%.o: $(GEN)/%.cpp
