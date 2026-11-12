@@ -60,9 +60,71 @@ esa imagen sin ventana ni búsqueda. Capítulo 1, PSP contra Flycast en el mismo
 **Los cuadros no coinciden en el tiempo.** El mejor cuadro de Flycast para la captura de la PSP no es
 el mismo número: PSP 1000 ↔ Flycast 1003 (43,3 dB; el corte a negro cae en Flycast entre 1003 y
 1004), PSP 1750 ↔ Flycast ≈1730, PSP 2350 ↔ Flycast ≈2334 (24,6 dB contra 17,2 en el mismo número).
-Mover todas las pulsaciones ±2 cuadros no lo arregla. Las pulsaciones son iguales; la línea de
-tiempo del juego difiere en cuadros entre la PSP y Flycast (causa sin aislar). Por eso un número «en
-el mismo cuadro» del capítulo 1 mide también ese desfase, no solo la imagen.
+Mover todas las pulsaciones ±2 cuadros no lo arregla. Causa medida en el paso 43 (abajo): la
+numeración de cuadros del core no es la de los VBlank del juego; el capítulo 1 se compara en el
+cuadro alineado por escena.
+
+### Desfase de la línea de tiempo (paso 43)
+
+Medido con `FLYCAST_ESTADOS=DIR` (nuevo en `capturar-flycast-cuadro.sh`: guarda el estado de
+RetroArch de cada cuadro capturado) y `FLYCAST_OPCIONES="clave=valor ..."` (opciones del core por
+corrida). La RAM de 16 MB se encuentra en el estado buscando 4 KB del código del juego (de
+0x8C020000). Del lado del guest de la PSP se lee la misma RAM con el PC recompilado (`ikaruga_boot
+--dump`), que es bit a bit el guest de la PSP en el build double (y el arranque igual hasta el 240 con
+`test-psp-igual-pc.sh` en float); aquí el PC solo da contadores, no imágenes.
+
+Contadores del juego encontrados comparando la RAM en los cuadros 1000 y 1001 del PC (palabras que
+suben 1):
+- `0x8C10BFC8`: VBlanks del juego. En el PC/PSP vale N−13 en todos los cuadros medidos (150…2350).
+- `0x8C1523C0`: ticks de la lógica. En el PC/PSP vale N−75.
+
+**1. Un cuadro del core es una imagen presentada, no un VBlank.** `retro_run` llama a
+`emu.render()`, que corre el SH4 hasta que se presenta una imagen (`present()` →
+`getSh4Executor()->Stop()`, `core/hw/pvr/Renderer_if.cpp:262-275`); sin render solo corta
+`Emulator::vblank` tras 50 ms de SH4 (`core/emulator.cpp:1084-1095`), es decir ~3 VBlanks. Con las
+pulsaciones de siempre (`K`=700), contador del juego +13 menos el cuadro del core:
+
+| cuadro del core | 100-460 (antes de START) | 800, 1000 | 1200-1400 | 1500-1800 | 1900 | 2000-2700 |
+|---|---|---|---|---|---|---|
+| VBlank del juego − cuadro | +242 (1:1) | +256 | +258 | +295 | +306 | +317 |
+
+Los saltos caen en las cargas de disco que siguen a las pulsaciones (1000→1200: +2; 1400→1500:
++37; 1800→1900 y 1900→2000: +11 y +11), donde el juego no renderiza. Por eso el desfase en imagen es
++3 en el 1000 y ≈−17…−20 desde el 1500: las pulsaciones del core caen en VBlanks del juego cada vez
+más tarde y la escena llega antes en número de cuadro del core.
+
+**2. Con las pulsaciones en el mismo VBlank del juego queda un retraso fijo de la lógica.**
+Reponiendo cada pulsación en el cuadro del core cuyo contador de VBlank es el de la PSP
+(`start@458,start@757,start@955,a@1155,start@1318,a@1518,start@1696,a@1896`, iterado leyendo
+estados): en cada cuadro medido (700…2735) la lógica de Flycast va 6 ticks por detrás de la de la
+PSP respecto al VBlank, y ya en el cuadro 100 del core (antes de cualquier pulsación). Es tiempo del
+arranque: las lecturas del GD-ROM de Flycast con BIOS real frente al BIOS HLE del runtime (lectura
+modelada con la tasa de Flycast, 5 sectores por millón de ciclos). Contraprueba:
+`FLYCAST_OPCIONES=reicast_gdrom_fast_loading=enabled` lo cambia a −49 (la lógica adelanta), así que
+ese número depende del tiempo de disco del emulador, y la lógica del juego cuenta ticks perdidos en
+las cargas.
+
+**3. Latencia de presentación de 3-5 cuadros.** Con las pulsaciones alineadas por ticks de la lógica
+(`start@464,…,a@1902`), la mejor imagen de Flycast para la PSP del cuadro N tiene la lógica en
+N+3 (1000: 37,49 dB), N+2 (1650), N+2 (2100), N+5 (2350: 25,40), N+5 (2700: 24,22). Con
+`reicast_delay_frame_swapping=disabled` el fundido a negro del 1000 llega un cuadro del core antes
+(negro en el 1003 en vez del 1004): parte de esa latencia es el intercambio diferido del core.
+Ninguna alineación da la RAM igual (≈2500 de 98 304 palabras de 0x8C100000-0x8C160000 distintas en
+la mejor): los 6 ticks cambian el estado del juego (azar, enemigos).
+
+**Decisión: (a), de Flycast/RetroArch.** Los saltos son de la cuenta de cuadros del core y del tiempo
+del disco emulado, que tampoco es el de una consola real; el guest de la PSP cuenta un VBlank por
+cuadro como el PC. No hay nada que arreglar en el port. La prueba compara en el cuadro alineado por
+escena: `scripts/escenas-flycast.sh` da `DESFASE_1000=3`, `DESFASE_1750=-20`, `DESFASE_2350=-17`,
+`DESFASE_2700=-17` (pulsaciones de siempre, `K`=700), y `comparar-flycast.sh --captura … --imagen A
+--imagen B …` toma la de mayor SSIM entre N+DESFASE−2 … N+DESFASE+2.
+
+| PSP | mismo número: todo | alineado (Flycast) : todo | nubes:150,55,290,90 |
+|---|---|---|---|
+| 1000 | 29,04 dB / 0,997 | 1003: 43,35 / 0,999 | |
+| 1750 | 29,44 / 0,894 | 1730: 31,34 / 0,930 | |
+| 2350 | 17,22 / 0,669 | 2333: 26,73 / 0,948 | |
+| 2700 | 17,25 / 0,550 | 2683: 26,04 / 0,904 | 30,58 / 0,924 (16,13 / 0,226 en el 2700) |
 
 ## La serie de referencia
 
