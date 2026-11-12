@@ -18,18 +18,18 @@ Con PPSSPP: `PROBAR_SACAR="estado-600.bin"` trae el volcado; `PROBAR_METER="ruta
 
 ```sh
 P="start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200"
-printf 'rtc_seed = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\nguardar_estado_en=2590\n' "$P" >a.cfg
+printf 'rtc_semilla = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\nguardar_estado_en=2590\n' "$P" >a.cfg
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=a.cfg PROBAR_SACAR=estado-2590.bin \
   scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $J 1500 a/psp.log
-printf 'rtc_seed = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\ncargar_estado=estado-2590.bin\n' "$P" >b.cfg
+printf 'rtc_semilla = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\ncargar_estado=estado-2590.bin\n' "$P" >b.cfg
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=b.cfg PROBAR_METER=a/estado-2590.bin \
   scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $J 600 b/psp.log
 ```
 
 El cfg de la carga tiene que repetir lo que afecta al guest después del cuadro N: las mismas
 `pulsar=` (el guion se aplica por número de cuadro, y el contador de cuadros viene en el estado) y el
-mismo `rtc_seed` (el reloj del AICA sí va en el estado; la semilla solo importa al arrancar). Las
-claves de depuración del host (`hash_every`, `capturar_en`, `dibujar_desde`…) son libres.
+mismo `rtc_semilla` (el reloj del AICA sí va en el estado; la semilla solo importa al arrancar). Las
+claves de depuración del host (`hash_cada`, `capturar_en`, `dibujar_desde`…) son libres.
 
 ## Punto de volcado
 
@@ -73,11 +73,11 @@ dibujar; las épocas de VRAM sí van), estado del vídeo del host.
 
 ## Cómo se comprueba
 
-Con las pulsaciones del capítulo 1 (las de `test-psp-igual-pc-double.sh`) y `rtc_seed 1`, en PPSSPP sin
+Con las pulsaciones del capítulo 1 (las de `test-psp-igual-pc-double.sh`) y `rtc_semilla 1`, en PPSSPP sin
 limitador (`DISCO-real.ISO`), el criterio es que la corrida desde el estado dé lo mismo que la corrida
 desde el arranque:
 
-- las líneas `hash` de los cuadros posteriores al volcado son idénticas (`hash_every=1`);
+- las líneas `hash` de los cuadros posteriores al volcado son idénticas (`hash_cada=1`);
 - `captura-2600.raw` es idéntica (`cmp`);
 - volcar no altera la corrida: 0→2600 con y sin `guardar_estado_en` dan los mismos `hash`.
 

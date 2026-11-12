@@ -96,10 +96,10 @@ pruebas son las que los demás docs citan.
 |---|---|
 | `boton_cruz`, `boton_circulo`, `boton_cuadrado`, `boton_triangulo`, `boton_l`, `boton_r`, `boton_start`, `boton_select`, `umbral_stick`, `tate`, `control` | controles (`docs/controles-psp.md`) |
 | `pulsar=start@700,…` | pulsaciones guionadas, sintaxis de `--press` del PC; cada una dura 8 cuadros |
-| `rtc_seed=N` (alias `rtc_semilla`) | reloj de la consola en N segundos desde 1970 (1 por omisión) |
-| `hash_every=N` | cuadros entre líneas `hash` (60 por omisión; 1 ubica el primer cuadro distinto del PC) |
-| `log_from=I`, `log_count=N` | las escrituras del guest [I, I+N) van a `writes.log` (formato `--write-log` del PC) |
-| `test_exit_at=N`, `test_suspend_at=N` | en el cuadro N notifica la salida (HOME) / simula suspender y reanudar |
+| `rtc_semilla=N` | reloj de la consola en N segundos desde 1970 (1 por omisión) |
+| `hash_cada=N` | cuadros entre líneas `hash` (60 por omisión; 1 ubica el primer cuadro distinto del PC) |
+| `log_desde=I`, `log_cantidad=N` | las escrituras del guest [I, I+N) van a `writes.log` (formato `--write-log` del PC) |
+| `prueba_salida_en=N`, `prueba_suspension_en=N` | en el cuadro N notifica la salida (HOME) / simula suspender y reanudar |
 | `capturar_en=N` | tras dibujar el primer render en o después del cuadro N escribe `captura-N.raw` (RGB888, 480×272) y sale |
 | `max_cuadros=N` | sale en el cuadro N |
 | `dibujar=0` / `dibujar_desde=N` | no dibuja geometría / no llama al video antes del cuadro N |
@@ -128,4 +128,4 @@ Para comprobar que lo que armaste es lo mismo (el disco y lo derivado son del us
 | `1ST_READ.BIN` | 1 027 892 B, sha1 `f2524eb571da1b0fb4a9b2cdab448ce24764c6f9` (sha256 `b3c9a2b98a4893a9de9436618c4bdeea3edaa9d774714ff05f8f47942ed855de`); la extracción dice `wrote IP.BIN and 737 files` |
 | `gen/` con idle-skip | 20 archivos, 48 MB, sha256 de la concatenación ordenada `924f8b67d9778173fba9dbcd15117eb36f84aa51ca355b6158837860aec884da` |
 | `DISCO.ISO` (área HD real) | 504 150 sectores, 0 ilegibles, 1 032 499 200 B, sha256 `c3173ebddd1058894b3b806e2ced63ededa2a66efdc15f9467585d388e110db7` |
-| cuadro 60 del `write_hash` (sin entrada, `rtc_seed 1`) | `b003d78fd04385d4` |
+| cuadro 60 del `write_hash` (sin entrada, `rtc_semilla 1`) | `b003d78fd04385d4` |

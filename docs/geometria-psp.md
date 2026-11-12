@@ -21,11 +21,11 @@ Mediciones de la fila que lo construyó: `docs/mediciones/geometria-psp.md`.
   captura vacía en PPSSPP) y escritura RGB888 cruda en `captura-N.raw`.
 - `ikaruga.cfg`: `capturar_en=N` (tras dibujar el primer render en o después del cuadro N escribe
   `captura-N.raw` y sale), `max_cuadros=N`, `pulsar=start@700,…` (sintaxis de `--press`; 8 cuadros cada
-  una), `rtc_seed=N`, `dibujar=0` (borra y presenta sin dibujar), `dibujar_desde=N` (no decodifica ni
+  una), `rtc_semilla=N`, `dibujar=0` (borra y presenta sin dibujar), `dibujar_desde=N` (no decodifica ni
   dibuja antes del cuadro N), `profundidad=0`, `trazar=1` (una línea por tira del render capturado),
   `volcar_ta=1` (escribe además `ta-N.bin`, la corriente del TA de ese render). Lista completa en
   `docs/primer-uso.md`.
-- Con `rtc_seed=1` la PSP no toma la hora real y el render de un cuadro dado es el mismo en cada
+- Con `rtc_semilla=1` la PSP no toma la hora real y el render de un cuadro dado es el mismo en cada
   corrida.
 - Herramientas de depuración a mano, sin prueba: `scripts/contar-poligonos.cpp` (decodifica una
   corriente de `--dump-ta` del PC con el `DisplayList` del submódulo) y `tools/analizar-ta.cpp`.

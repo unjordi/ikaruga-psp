@@ -25,10 +25,10 @@ otros sectores y el hash de escrituras se separa del PC en el cuadro 4.
 | garantía | cómo | prueba |
 |---|---|---|
 | Redondeo del guest: el parche `0001` lee y escribe `FCSR.RM` con `cfc1`/`ctc1` (el `fesetround` de newlib-psp es un stub) | 1/3 trunca a cero (`0x3eaaaaaa`) y redondea al más cercano (`0x3eaaaaab`) | `scripts/test-psp-redondeo.sh` |
-| RTC: `rtc_seed` de `ikaruga.cfg` (por omisión 1) y un tick por segundo de guest (200 M ciclos), como el lanzador de PC | con semilla 1000 el RTC del cuadro 60 vale 631 153 001 | `scripts/test-psp-rtc.sh $E $J 25` |
-| Mismas escrituras que PC: línea `hash <cuadro> <ciclos> <write_hash> <escrituras> rtc <s>` cada `hash_every` cuadros (60 por omisión) | `write_hash` igual en los cuadros 60…`HASTA` | `scripts/test-psp-igual-pc.sh $E $J` (`HASTA=600` por omisión, `HASTA=240` es el arranque rápido) |
-| HOME: hilo de callbacks con `sceKernelRegisterExitCallback`; el hilo principal sale entre cuadros y llama `sceKernelExitGame` | con `test_exit_at=120` el log termina en `stop: exit requested` en el cuadro 121 | `scripts/test-psp-salida-suspension.sh $E $J` |
-| Suspender: `scePowerRegisterCallback`; en `RESUME_COMPLETE` el disco reabre su imagen por ruta antes de la siguiente lectura | con `test_suspend_at=30` el hash sigue igual al de PC | mismo script |
+| RTC: `rtc_semilla` de `ikaruga.cfg` (por omisión 1) y un tick por segundo de guest (200 M ciclos), como el lanzador de PC | con semilla 1000 el RTC del cuadro 60 vale 631 153 001 | `scripts/test-psp-rtc.sh $E $J 25` |
+| Mismas escrituras que PC: línea `hash <cuadro> <ciclos> <write_hash> <escrituras> rtc <s>` cada `hash_cada` cuadros (60 por omisión) | `write_hash` igual en los cuadros 60…`HASTA` | `scripts/test-psp-igual-pc.sh $E $J` (`HASTA=600` por omisión, `HASTA=240` es el arranque rápido) |
+| HOME: hilo de callbacks con `sceKernelRegisterExitCallback`; el hilo principal sale entre cuadros y llama `sceKernelExitGame` | con `prueba_salida_en=120` el log termina en `stop: exit requested` en el cuadro 121 | `scripts/test-psp-salida-suspension.sh $E $J` |
+| Suspender: `scePowerRegisterCallback`; en `RESUME_COMPLETE` el disco reabre su imagen por ruta antes de la siguiente lectura | con `prueba_suspension_en=30` el hash sigue igual al de PC | mismo script |
 | Carpeta: el directorio del juego sale de `argv[0]` | corre instalado en `ms0:/PSP/GAME/OTRA_CARPETA/` | `scripts/test-psp-carpeta.sh $E $J 25` |
 | VMU: `psp/stubs/vmu.cpp` lee `VMU.BIN`; cada escritura va a `VMU.BIN.TMP`, `sceIoRename` sobre `VMU.BIN` y `sceIoSync` (parche `0005`) | la corrida 1 deja 131 072 B; la 2 los lee | `scripts/test-psp-vmu.sh $E $J 100` |
 | Arranque | cuadros que avanzan, error claro sin `1ST_READ.BIN` | `scripts/test-psp-arranque.sh $E $J 30` |
@@ -37,9 +37,9 @@ otros sectores y el hash de escrituras se separa del PC en el cuadro 4.
 
 ## `ikaruga.cfg` de depuración
 
-Junto al EBOOT; líneas `clave = valor`, `#` comenta. Las que usan estas pruebas: `rtc_seed`,
-`hash_every`, `log_from`/`log_count` (el EBOOT escribe `writes.log` con el formato de `--write-log`
-de PC para ubicar la primera escritura distinta), `test_exit_at`, `test_suspend_at`. Lista completa:
+Junto al EBOOT; líneas `clave = valor`, `#` comenta. Las que usan estas pruebas: `rtc_semilla`,
+`hash_cada`, `log_desde`/`log_cantidad` (el EBOOT escribe `writes.log` con el formato de `--write-log`
+de PC para ubicar la primera escritura distinta), `prueba_salida_en`, `prueba_suspension_en`. Lista completa:
 `docs/primer-uso.md`.
 
 ## Build `double`: igualdad total con el PC
@@ -73,7 +73,7 @@ scripts/test-psp-igual-pc-double.sh --contraprueba $E $J   # sin 0010 diverge en
 ```
 
 `test-psp-igual-pc-double.sh` corre `test-psp-igual-pc.sh` con las pulsaciones del capítulo 1,
-`HASTA=2600` y `hash_every=1`, y compara todos los cuadros que registraron los dos lados. La PSP
+`HASTA=2600` y `hash_cada=1`, y compara todos los cuadros que registraron los dos lados. La PSP
 tarda unos 1 500 s de PPSSPP en llegar al cuadro 2600.
 
 ## Qué no cubre

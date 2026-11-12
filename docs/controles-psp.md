@@ -71,7 +71,7 @@ boton_cuadrado=r
 ## Cómo se prueba
 
 `scripts/probar-ikaruga-ppsspp.sh` acepta `PROBAR_TECLA=space@700`: cuando `ikaruga.log` muestra un
-`hash` en el cuadro ≥ 700 (con `hash_every=10`), mueve el puntero sobre la ventana de PPSSPP, le da el
+`hash` en el cuadro ≥ 700 (con `hash_cada=10`), mueve el puntero sobre la ventana de PPSSPP, le da el
 foco y mantiene `space` con `xdotool keydown` hasta el cuadro ≥ 720. Lo hecho queda en
 `<salida>.tecla.log`. La tecla de START por defecto en PPSSPP 1.20.4 es la barra espaciadora
 (`Core/KeyMapDefaults.cpp`, `{CTRL_START, NKCODE_SPACE}`). Xvfb no tiene gestor de ventanas:
