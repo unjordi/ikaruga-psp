@@ -143,7 +143,10 @@ repetido; en los tres el mejor cuadro es N−17 (`DESFASE_2300=-17`, `DESFASE_26
 A ojo (parejas ampliadas): en el 2300 el panel del satélite sigue saliendo en la PSP como un peine
 de rayas oscuras donde Flycast dibuja un plano gris translúcido: **el defecto del paso 44 es real**.
 El cielo alto del 2300 es igual en los dos (mismas nubes, misma línea del HUD): **las «franjas
-diagonales» del paso 46 eran el desfase de la serie vieja**, no un defecto.
+diagonales» del paso 46 eran el desfase de la serie vieja**, no un defecto. Causa del peine: las
+texturas mipmapped se subían sin cadena (docs/video-psp.md «Mipmaps»); con la cadena, `ala` 28,36 /
+0,927 (2300), 20,10 / 0,797 (2350), 19,85 / 0,645 (2600), `cielo-sup` 32,81 / 0,956, 33,28 / 0,980,
+23,75 / 0,874.
 
 ## La serie de referencia
 

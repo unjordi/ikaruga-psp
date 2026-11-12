@@ -74,6 +74,30 @@ Cuadros 2350/2700/3000: el centro sube 3–5 dB (cifras en `docs/plan.md`, paso 
 speed 0,0846 frente a 0,0859, `draw_ms_per_render` 21,4 frente a 18,3, y el bloque libre mayor baja
 de 1088 a 1008 KB (vectores de vértices recortados).
 
+## Mipmaps (`mipmaps=0` los quita)
+
+Las texturas con el bit 31 de la TCW (mipmapped) se subían al GE solo con el nivel base: en
+superficies que se alejan (el panel del satélite del capítulo 1) el GE muestreaba ese nivel muy
+minificado y salía un peine de rayas oscuras donde Flycast dibuja un plano gris. Ahora
+`texture_psp.cpp` arma la cadena reduciendo 2×2 la imagen ya espejada/reducida (no reusa la del
+guest, cuyos niveles son también reducciones 2×2), hasta 8 texels de lado y como mucho 8 niveles,
+en el mismo bloque swizzled; `video.cpp` la sube con `sceGuTexMode(fmt, niveles−1, …)`,
+`sceGuTexImage(l, …)`, `sceGuTexLevelMode(GU_TEXTURE_AUTO, 0)` y filtro de minificación
+`GU_NEAREST_MIPMAP_NEAREST` / `GU_LINEAR_MIPMAP_NEAREST` según el punto/bilineal de la tira. Las
+texturas suavizadas por software (`kRect`, `kTent`) siguen sin cadena.
+
+Medido contra Flycast en el cuadro alineado (PSP N ↔ Flycast N−17), `ala:190,135,360,170`:
+
+| PSP | sin mipmaps | con mipmaps |
+|---|---|---|
+| 2300 | 24,24 dB / 0,844 | 28,36 / 0,927 |
+| 2350 | 19,50 / 0,773 | 20,10 / 0,797 |
+| 2600 | 19,53 / 0,615 | 19,85 / 0,645 |
+
+Contraprueba: `mipmaps=0` en el 2300 vuelve al peine y a 24,24 / 0,844. Coste: la cadena suma ≈1/3
+a cada textura mipmapped: en el 2600 el bloque libre mayor con BIOS baja a 928 KB (develop ≈1008);
+velocidad 0,0846 (igual). `perspectiva=2` no cambia nada medible (`ala` 28,58 / 0,930).
+
 ## Qué no cubre
 
 - Todo es PPSSPP. Las dos pasadas con `EQUAL` suponen que el GE da exactamente la misma profundidad a
