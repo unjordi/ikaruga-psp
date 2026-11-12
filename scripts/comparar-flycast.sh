@@ -2,7 +2,7 @@
 # Compares what the PSP EBOOT shows (PPSSPP) with Ikaruga in Flycast. Two modes:
 #
 # (1) One capture against a window of the Flycast reference series (what the image tests use):
-#   scripts/comparar-flycast.sh --captura <captura-N.raw|png> --ventana F0-F1 [--serie DIR]
+#   scripts/comparar-flycast.sh --captura <captura-N.raw|png> (--ventana F0-F1 [--serie DIR] | --imagen FLYCAST.png)
 #       [--region NOMBRE:x0,y0,x1,y1]... [--exigir REGLA]... [--iou] [--sin-borde] [--salida DIR]
 # The capture is 480x272 (RGB888 .raw as the EBOOT writes it, or a PNG). The Flycast image taken
 # is the one of the window [F0,F1] with the highest whole-screen SSIM. Prints PSNR and SSIM for
@@ -13,6 +13,9 @@
 # are an OR; every --exigir must hold. Exit 0 when all hold (or none given), 1 when one fails,
 # 3 when the scene is not found (window outside the series, or the best match is a window edge
 # that is still clearly improving, so the scene is cut by the window), 2 on usage errors.
+# --imagen FLYCAST.png: compare against that one 480x272 image instead of a window: the image of the
+# same guest frame, from scripts/capturar-flycast-cuadro.sh (p480/f<N>.png). No window search and no
+# edge check; the numbers are those of the pair.
 # --sin-borde skips the edge check (for negative controls, where the scene is not expected to be
 # in the window).
 # --serie DIR: default build/flycast/ref/p480; when missing it is recorded with
@@ -42,7 +45,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-salida="" escenas=() contras=() pos=() captura="" ventana="" serie="" regiones=() reglas=() iou=0 sinborde=0
+salida="" escenas=() contras=() pos=() captura="" ventana="" serie="" imagen="" regiones=() reglas=() iou=0 sinborde=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --escena) escenas+=("$2"); shift 2 ;;
@@ -51,18 +54,25 @@ while [[ $# -gt 0 ]]; do
     --captura) captura="$2"; shift 2 ;;
     --ventana) ventana="$2"; shift 2 ;;
     --serie) serie="$2"; shift 2 ;;
+    --imagen) imagen="$2"; shift 2 ;;
     --region) regiones+=("$2"); shift 2 ;;
     --exigir) reglas+=("$2"); shift 2 ;;
     --iou) iou=1; shift ;;
     --sin-borde) sinborde=1; shift ;;
-    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     -*) echo "unknown argument: $1" >&2; exit 2 ;;
     *) pos+=("$1"); shift ;;
   esac
 done
 
 if [[ -n "$captura" ]]; then
-  [[ -f "$captura" && "$ventana" =~ ^[0-9]+-[0-9]+$ ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
+  if [[ -n "$imagen" ]]; then
+    [[ -f "$captura" && -f "$imagen" && -z "$ventana" && -z "$serie" ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
+    serie="$(mktemp -d)"; trap 'rm -rf "$serie"' EXIT
+    cp "$imagen" "$serie/f00001.png"; ventana="1-1"; sinborde=1
+  else
+    [[ -f "$captura" && "$ventana" =~ ^[0-9]+-[0-9]+$ ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
+  fi
   serie="${serie:-$REPO/build/flycast/ref/p480}"
   if [[ ! -s "$serie/f00001.png" ]]; then
     chd="${FLYCAST_CHD:-$REPO/build/flycast/Ikaruga.chd}"

@@ -27,6 +27,43 @@ ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc
 - El disco se copia a `build/flycast/Ikaruga.chd` (el original puede ser de solo lectura; `FLYCAST_CHD`
   apunta a otro).
 
+## Flycast por cuadro exacto
+
+`scripts/capturar-flycast-cuadro.sh <disco.chd> --cuadros N[,N...] [--pulsar P] [--retraso K]`
+da la imagen de Flycast del cuadro N del guest con las pulsaciones en cuadros exactos (la serie por
+reloj de pared de arriba sigue siendo la de las escenas quietas). Necesita `FLYCAST_BIOS`.
+
+Cómo: el core de Flycast de RetroArch (flatpak `org.libretro.RetroArch`, instalación de usuario,
+`flycast_libretro.so`). Se graba una vez una repetición (`retroarch -R`) sin entrada, desde el
+arranque; `scripts/flycast-replay.py` reescribe en ella la máscara del pad (formato BSV v2 de
+RetroArch 1.22: puerto 0, dispositivo 1, id 256) para que cada pulsación caiga en el cuadro pedido y
+dure 8 cuadros como en la PSP; `retroarch -P … --max-frames=K+N --max-frames-ss` reproduce hasta ahí
+y guarda la captura (640×480; `p480/` la baja a 480×272 como la serie). Cada corrida usa un
+directorio propio con solo la BIOS: el core escribe VMU y `dc_nvmem.bin` junto a ella, y una VMU
+sobrante cambia la primera pantalla («ロード» en vez de «作成»). La configuración de RetroArch y las
+opciones del core (640×480, región Japón) son por corrida; la del usuario no se toca.
+
+`K` (700) son cuadros del core antes del cuadro 0 del guest; basta que sea mayor que lo que tardan la
+BIOS y el arranque del juego, porque el juego espera START en la pantalla del archivo de datos:
+K = 560…720 da la misma imagen del cuadro 790 (43,14 dB contra la PSP en todos). Los cuadros de una
+pulsación hacia delante son exactos; antes del primer START no hay cuadro de guest que medir.
+
+Dos grabaciones nuevas (base regrabada, mismos argumentos) del 2350 y del 2700: idénticas byte a
+byte. Con otro `K` (640): el 2700 idéntico y el 2350 a 51,08 dB (diferencia local en una explosión,
+x 366-476, y 286-398).
+
+`comparar-flycast.sh --captura <PSP.raw> --imagen build/flycast/cuadros/p480/f<N>.png` compara contra
+esa imagen sin ventana ni búsqueda. Capítulo 1, PSP contra Flycast en el mismo cuadro: 2350 todo
+17,22 dB / SSIM 0,669, `nubes:150,55,290,90` 19,46 / 0,676; 2700 todo 17,25 / 0,550, `nubes` 16,13 /
+0,226 (iguales en las dos grabaciones).
+
+**Los cuadros no coinciden en el tiempo.** El mejor cuadro de Flycast para la captura de la PSP no es
+el mismo número: PSP 1000 ↔ Flycast 1003 (43,3 dB; el corte a negro cae en Flycast entre 1003 y
+1004), PSP 1750 ↔ Flycast ≈1730, PSP 2350 ↔ Flycast ≈2334 (24,6 dB contra 17,2 en el mismo número).
+Mover todas las pulsaciones ±2 cuadros no lo arregla. Las pulsaciones son iguales; la línea de
+tiempo del juego difiere en cuadros entre la PSP y Flycast (causa sin aislar). Por eso un número «en
+el mismo cuadro» del capítulo 1 mide también ese desfase, no solo la imagen.
+
 ## La serie de referencia
 
 `build/flycast/ref/` (ignorada por git): 60 s a 10 fps con las pulsaciones del capítulo 1
@@ -195,8 +232,8 @@ satélite (diferencias 3, 5 y 6 de arriba). Lo atacan los pasos de la sección �
   con la grabación (arriba) y sus diferencias de instante no se separaron por completo.
 - Las ventanas están fijadas a ojo; el mejor-SSIM dentro de ellas es objetivo, las ventanas no. El
   cuadro 2350 se eligió viendo el barrido de arriba (a la vista de los números, no antes).
-- Flycast corre en tiempo real y las pulsaciones van por reloj de pared: no es cuadro exacto, y no
-  se midió en cuántos cuadros de juego cae cada pulsación respecto a la PSP. Dos grabaciones dieron los
+- La serie de `capturar-flycast.sh` corre en tiempo real y las pulsaciones van por reloj de pared: no
+  es cuadro exacto (para eso, `capturar-flycast-cuadro.sh`, arriba). Dos grabaciones dieron los
   mismos índices; no hay más de dos.
 - La serie son 10 capturas por segundo: un instante corto puede caer entre dos.
 - Flycast con la BIOS real del usuario (una sola BIOS, la de su consola) y región Japón; no se probó
