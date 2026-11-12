@@ -24,8 +24,8 @@ if ! command -v "$MOTOR" >/dev/null || { [ "$MOTOR" = xelatex ] && [ -z "$(kpsew
   faltan+=("$MOTOR (pacman -S texlive-xetex texlive-latexextra)")
 fi
 [ ${#faltan[@]} -eq 0 ] || { printf '[armar-docs] missing: %s\n' "${faltan[@]}" >&2; exit 1; }
-for f in "DejaVu Sans" "DejaVu Sans Mono"; do
-  fc-list "$f" | grep -q . || { echo "[armar-docs] missing font '$f' (pacman -S ttf-dejavu)" >&2; exit 1; }
+for f in "DejaVu Sans" "DejaVu Sans Mono" "Noto Sans CJK JP"; do
+  fc-list "$f" | grep -q . || { echo "[armar-docs] missing font '$f' (pacman -S ttf-dejavu noto-fonts-cjk)" >&2; exit 1; }
 done
 
 INDICE="$RAIZ/docs/README.md"
