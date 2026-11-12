@@ -636,7 +636,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 redo.colour = fog->table_colour;
             }
             clip_strip(&g_vertices[p.first], &g_fog_vertices[p.first], &g_base_colours[p.first],
-                       &frame.vertices[p.first], p.count, redo);
+                        &frame.vertices[p.first], p.count, redo);
             item.persp_count = static_cast<int>(g_persp_vertices.size()) - item.persp_first;
             ++stats.perspective;
         }
