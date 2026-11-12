@@ -16,7 +16,9 @@
 //   * user tile clip (PCW) -> sceGuScissor: mode 2 inside the rectangle, mode 3 as up to four
 //     scissored draws around it, restored to the whole screen after (Ikaruga keeps its play field
 //     out of the HUD columns this way).
-// Not drawn: the offset (specular) colour, fog and colour clamp, which the GE's fixed function has
+//   * fog -> two passes per fogged strip (the GE has no fog in through mode), see the fog block in
+//     video_draw_frame.
+// Not drawn: the offset (specular) colour and the colour clamp, which the GE's fixed function has
 // no place for in through mode.
 //
 // eDRAM layout (2 MB): two 512x272 RGBA8888 colour buffers (544 KB each) and a 16-bit depth

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Acceptance test for the headless PSP boot, in PPSSPP:
+# Acceptance test for the PSP boot, in PPSSPP:
 #  - without game data the EBOOT logs a clear error about 1ST_READ.BIN and starts no guest;
 #  - with the extracted disc the guest advances: frames > 0 and its PC takes several values.
 # Prints the last log line (frames, guest/host seconds, speed in times real time).

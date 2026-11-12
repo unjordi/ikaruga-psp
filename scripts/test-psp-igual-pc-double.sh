@@ -20,7 +20,7 @@ OUT="${IGUAL_OUT:-$REPO/build/psp/evidencia/igual-pc-double}"
 PRESSES="start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200"
 EXPECTED=1983
 mkdir -p "$OUT"
-printf 'hash_every=1\n' >"$OUT.cfg"
+printf 'hash_cada=1\n' >"$OUT.cfg"
 
 rc=0
 IGUAL_OUT="$OUT" PROBAR_CFG_EXTRA="$OUT.cfg" PULSAR="$PRESSES" HASTA=2600 \

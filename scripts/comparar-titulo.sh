@@ -7,7 +7,7 @@
 #                              [--pulsar P] [--cfg LINE]... [--serie DIR] [--region NOMBRE:x0,y0,x1,y1]...
 #                              [--exigir REGLA]... [--iou] [--sin-borde]
 # PSP: PPSSPP runs the EBOOT with ikaruga.cfg = capturar_en=N, pulsar=P (default start@700),
-# rtc_seed=1 (and texturas=0 with --sin-texturas); --cfg LINE adds LINE to it (repeatable).
+# rtc_semilla=1 (and texturas=0 with --sin-texturas); --cfg LINE adds LINE to it (repeatable).
 # Default N: 1243, the first frame of the title that is identical to the settled title
 # (frames 1210-1242 fade in). Default window: the title's (scripts/escenas-flycast.sh).
 # --ventana, --serie, --region, --exigir, --iou and --sin-borde go to comparar-flycast.sh as they are; without
@@ -56,7 +56,7 @@ if [[ $reusar -eq 0 || ! -s "$PSP_RAW" ]]; then
   {
     echo "capturar_en=$cuadro"
     echo "pulsar=$PRESSES"
-    echo "rtc_seed=1"
+    echo "rtc_semilla=1"
     # Video off until 10 frames before the capture (docs/pruebas-rapidas.md); a later
     # dibujar_desde=0 line (--cfg) draws every frame again.
     (( cuadro > 10 )) && echo "dibujar_desde=$(( cuadro - 10 ))"

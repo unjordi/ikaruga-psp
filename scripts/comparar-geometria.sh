@@ -3,7 +3,7 @@
 # scene (a window of the Flycast reference series), with the same scripted presses.
 #   scripts/comparar-geometria.sh <EBOOT.PBP> <dir-juego-extraido> [--cuadro N] [--ventana F0-F1]
 #                                 [--sin-dibujo] [--salida DIR] [--reusar] [--segundos S] [--serie DIR]
-# PSP: PPSSPP runs the EBOOT with ikaruga.cfg = capturar_en=N, pulsar=<P> and rtc_seed=1 (and
+# PSP: PPSSPP runs the EBOOT with ikaruga.cfg = capturar_en=N, pulsar=<P> and rtc_semilla=1 (and
 # dibujar=0 with --sin-dibujo); the EBOOT writes captura-N.raw (480x272 RGB888) and quits.
 # Flycast: scripts/comparar-flycast.sh --captura, mask = pixels with any channel above 24 (the
 # clear colour is black), the Flycast image being the one of the window with the highest SSIM.

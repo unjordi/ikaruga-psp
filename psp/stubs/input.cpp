@@ -77,13 +77,6 @@ bool parse_target(const std::string& name, Target& out) {
     return true;
 }
 
-std::string trimmed(const std::string& s) {
-    const std::size_t a = s.find_first_not_of(" \t\r");
-    if (a == std::string::npos)
-        return {};
-    return s.substr(a, s.find_last_not_of(" \t\r") + 1 - a);
-}
-
 // Turns an upright d-pad direction set into the one the player means with the console on its
 // side. Counter-clockwise: the PSP's right edge is now the top, so right means up.
 std::uint16_t rotate_dpad(std::uint16_t dirs, int tate) {
@@ -109,23 +102,10 @@ void init_ctrl() {
 
 }  // namespace
 
-void input_config(const char* cfg_path) {
-    std::vector<std::uint8_t> raw;
-    if (!file_read(cfg_path, raw))
-        return;
-    const std::string text(raw.begin(), raw.end());
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-        std::size_t end = text.find('\n', pos);
-        if (end == std::string::npos)
-            end = text.size();
-        std::string line = text.substr(pos, end - pos);
-        pos = end + 1;
-        line = line.substr(0, line.find('#'));
-        const std::size_t eq = line.find('=');
-        if (eq == std::string::npos)
-            continue;
-        const std::string key = trimmed(line.substr(0, eq)), value = trimmed(line.substr(eq + 1));
+void input_config(const std::vector<CfgEntry>& cfg) {
+    for (const CfgEntry& e : cfg) {
+        const std::string& key = e.key;
+        const std::string& value = e.value;
         if (key == "control")
             g_enabled = value != "0";
         else if (key == "umbral_stick")

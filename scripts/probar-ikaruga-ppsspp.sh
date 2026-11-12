@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the headless Ikaruga EBOOT in PPSSPP (flatpak org.ppsspp.PPSSPP) on a virtual X display with
+# Runs the Ikaruga EBOOT in PPSSPP (flatpak org.ppsspp.PPSSPP) on a virtual X display with
 # a temporary memory stick holding ms0:/PSP/GAME/IKARUGA/{EBOOT.PBP,1ST_READ.BIN,DISCO.ISO}, for
 # <segundos> seconds, and copies the ikaruga.log it wrote to <salida.log>.
 #   scripts/probar-ikaruga-ppsspp.sh <EBOOT.PBP> <dir-juego-extraido> <segundos> [salida.log]
@@ -27,7 +27,7 @@
 #      PROBAR_GRABAR forces it off: the recording samples wall time and must line up with Flycast's.
 #      PROBAR_TECLA=KEY@N: once ikaruga.log has a "hash" line at guest frame >= N, focus the
 #      PPSSPP window and hold the X key KEY (xdotool keysym, e.g. space) until a hash line at
-#      frame >= N+20, then release it; put hash_every=10 in PROBAR_CFG for a finer trigger. What
+#      frame >= N+20, then release it; put hash_cada=10 in PROBAR_CFG for a finer trigger. What
 #      xdotool did goes to <salida>.tecla.log. Needs xdotool.
 #      PROBAR_SIN_IDLE=1 puts ms0:/PSP/GAME/IKARUGA/NO_IDLE_SKIP on the stick (idle-skip off).
 #      PROBAR_CFG=file is copied to ms0:/PSP/GAME/IKARUGA/ikaruga.cfg; any captura-*.raw the EBOOT

@@ -27,7 +27,7 @@ OUT="$(realpath -m "${salida:-$REPO/build/psp/evidencia/memoria}")"
 correr() {  # correr <punto> <cuadro> <pulsar> <segundos>
   local punto="$1" cuadro="$2" pulsar="$3" seg="$4" dir="$OUT/$1"
   rm -rf "$dir"; mkdir -p "$dir"
-  { echo "capturar_en=$cuadro"; echo "pulsar=$pulsar"; echo "rtc_seed=1"; echo "memoria=1"
+  { echo "capturar_en=$cuadro"; echo "pulsar=$pulsar"; echo "rtc_semilla=1"; echo "memoria=1"
     [[ -n "$kb" ]] && echo "texturas_kb=$kb"; } > "$dir/ikaruga.cfg"
   PROBAR_SIN_LIMITE=1 PROBAR_CFG="$dir/ikaruga.cfg" \
     "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" "$seg" "$dir/psp.log" >/dev/null 2>&1 || true
