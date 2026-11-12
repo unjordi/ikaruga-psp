@@ -66,7 +66,7 @@ en el 2600: `fipr/f 4526`, `ftrv/f 5927`, `fmac/f 10893`, `sched/f 1598`, `tex_h
   imagen (14,13 MB): el tiempo no está en el despacho de memoria. Forzar `always_inline` en los ocho
   accesos sube la imagen a 22,06 MB y el juego muere con `std::bad_alloc` en el cuadro 1482. Lo que
   sigue costando por escritura es `note_ram_write`, porque el lanzador arma siempre `hash_writes`
-  (plan, paso 50).
+  (plan, paso «El build de entrega deja de pagar lo que no necesita»).
 - **Variante `mix`**: runtime, stubs y `main.cpp` a `-O2`, el generado a `-Os` (la variante todo `-O2`
   no cabe en 64 MB). Frente a todo `-Os`, ≈1,3x en el arranque.
 
@@ -78,7 +78,7 @@ en el 2600: `fipr/f 4526`, `ftrv/f 5927`, `fmac/f 10893`, `sched/f 1598`, `tex_h
   el resto de A5 (`std::function` de `on_device_access`, `stream.insert` del TA) no se probó.
 - SPG con eventos solo en las líneas especiales (plan A6a): +3,3 %, pero cambia lo que el juego escribe
   desde el cuadro 240 (probablemente lee `SPG_STATUS` entre eventos); exige reproducir `SPG_STATUS` por
-  línea (plan, paso 53).
+  línea (plan, paso «SPG con menos eventos»).
 - Vaciar denormales por software solo en FIPR/FTRV/FMAC: −4 % y no cambia la igualdad con el PC (la
   entrada denormal entra por los `fadd`/`fmul` generados).
 

@@ -31,7 +31,7 @@ PC `mix(color, niebla, f)` se parte en dos pasadas:
 `f` sale de la tabla con la misma aritmética que `fog_factor` (`fog_table_factor`), o del alfa del
 color offset para la niebla por vértice (modo 1 con offset). El modo 3 (tabla solo en alfa) sustituye
 el color por el de la niebla con alfa `f`. Las translúcidas con otros factores de origen quedan sin
-niebla. La segunda pasada cuesta ≈4,5 % del capítulo 1 (plan, paso 61).
+niebla. La segunda pasada cuesta ≈4,5 % del capítulo 1 (plan, paso «Abaratar la segunda pasada de niebla»).
 
 En el log, la línea `fog:` del render capturado trae `density`, `col_ram` y la tabla; `fogged` cuenta
 las tiras con niebla. No hay render a textura: el contador `texture_renders` (`FB_W_SOF1` bit 24, en
@@ -64,5 +64,5 @@ medir:
 - La mezcla aditiva de la segunda pasada en translúcidas es una aproximación (exacta para
   `SRC_ALPHA / INV_SRC_ALPHA` y `ONE / ONE`).
 - El centro del capítulo 1 en 2350 queda en 20,28 dB / SSIM 0,682 contra Flycast; la prueba (a) solo mira
-  las columnas (`docs/referencia-flycast.md`; pasos 38 a 45 del plan).
+  las columnas (`docs/referencia-flycast.md`; pasos de la sección «Se ve como el original» del plan).
 - La región de los botones se fijó a ojo; no se barrió.
