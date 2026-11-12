@@ -76,6 +76,7 @@ agrega candidatos que el plan no lista, sin aplicar: la copia de `1ST_READ.BIN` 
 (4,00 reservados) y la lista del GE (1,0).
 
 Con la fuente de la BIOS (`DC_BOOT.BIN` junto al EBOOT) el heap en uso sube 0,51 MiB (la zona de la fuente, 536 496 B) y el bloque libre mayor del capítulo 1 baja de 1,64 a 1,13 MiB.
+Las tiras en perspectiva y los mipmaps lo bajan a 928 KB (cuadro 2600, con la fuente).
 
 ## Con `texturas_kb` distinto (cuadro 2600)
 

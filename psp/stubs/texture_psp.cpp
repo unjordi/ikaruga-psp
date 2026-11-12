@@ -60,6 +60,7 @@ TextureCacheStats g_stats;
 std::uint32_t g_render = 0;
 const std::uint8_t* g_vram = nullptr;
 std::size_t g_vram_size = 0;
+bool g_mipmaps = true;
 unsigned g_palette_format = 0;
 std::uint32_t g_palette[1024];
 const std::uint32_t* g_page_epoch = nullptr;
@@ -369,7 +370,18 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     const int iw = vw / fx, ih = vh / fy;
     const int format = entry_format(e);
     const int bpp = format == GU_PSM_8888 ? 4 : 2;
-    const std::uint32_t bytes = static_cast<std::uint32_t>(iw * ih * bpp);
+    // The guest's own chain is not reused: the base here may be mirrored or reduced, so each level
+    // is this image reduced 2x2 (the guest's levels are its 2x2 reductions too, texture.cpp). Down
+    // to 8 texels a side (one 16-byte swizzle block for 16-bit texels), at most 8 levels.
+    int levels = 1;
+    if (g_mipmaps && e.info.mipmapped && !shrunk && e.soft.mode != SoftSpec::kTent)
+        while (levels < 8 && (iw >> levels) >= 8 && (ih >> levels) >= 8) ++levels;
+    std::uint32_t bytes = 0;
+    std::uint32_t level_off[8] = {};
+    for (int l = 0; l < levels; ++l) {
+        level_off[l] = bytes;
+        bytes += static_cast<std::uint32_t>((iw >> l) * (ih >> l) * bpp);
+    }
     if (!make_room(bytes)) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
@@ -388,7 +400,22 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         return rgba[static_cast<std::size_t>(sy) * w + sx];
     };
     // Swizzled layout: blocks of 16 bytes by 8 rows, row-major over the image.
-    const int row_blocks = iw * bpp / 16;
+    const auto store = [&](std::uint8_t* dst, int lw, int x, int y, std::uint32_t c) {
+        const int row_blocks = lw * bpp / 16;
+        const std::uint32_t v = pack(c, format);
+        const int bx = (x * bpp) >> 4, inner = (x * bpp) & 15;
+        const std::size_t off = static_cast<std::size_t>((y >> 3) * row_blocks + bx) * 128 +
+                                static_cast<std::size_t>((y & 7) * 16 + inner);
+        if (bpp == 4)
+            std::memcpy(dst + off, &v, 4);
+        else {
+            const std::uint16_t v16 = static_cast<std::uint16_t>(v);
+            std::memcpy(dst + off, &v16, 2);
+        }
+    };
+    std::vector<std::uint32_t> lvl;  // the current level in RGBA8888, only kept for a chain
+    if (levels > 1)
+        lvl.resize(static_cast<std::size_t>(iw) * ih);
     for (int y = 0; y < ih; ++y) {
         for (int x = 0; x < iw; ++x) {
             std::uint32_t c;
@@ -405,17 +432,28 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
                 c = 0;
                 for (int k = 0; k < 4; ++k) c |= ((sum[k] + n / 2) / n) << (8 * k);
             }
-            const std::uint32_t v = pack(c, format);
-            const int bx = (x * bpp) >> 4, inner = (x * bpp) & 15;
-            const std::size_t off = static_cast<std::size_t>((y >> 3) * row_blocks + bx) * 128 +
-                                    static_cast<std::size_t>((y & 7) * 16 + inner);
-            if (bpp == 4)
-                std::memcpy(out + off, &v, 4);
-            else {
-                const std::uint16_t v16 = static_cast<std::uint16_t>(v);
-                std::memcpy(out + off, &v16, 2);
-            }
+            store(out, iw, x, y, c);
+            if (levels > 1)
+                lvl[static_cast<std::size_t>(y) * iw + x] = c;
         }
+    }
+    for (int l = 1; l < levels; ++l) {
+        const int pw = iw >> (l - 1), lw = iw >> l, lh = ih >> l;
+        std::vector<std::uint32_t> next(static_cast<std::size_t>(lw) * lh);
+        for (int y = 0; y < lh; ++y)
+            for (int x = 0; x < lw; ++x) {
+                std::uint32_t sum[4] = {};
+                for (int j = 0; j < 2; ++j)
+                    for (int i = 0; i < 2; ++i) {
+                        const std::uint32_t s = lvl[static_cast<std::size_t>(2 * y + j) * pw + 2 * x + i];
+                        for (int k = 0; k < 4; ++k) sum[k] += (s >> (8 * k)) & 0xFFu;
+                    }
+                std::uint32_t c = 0;
+                for (int k = 0; k < 4; ++k) c |= ((sum[k] + 2) / 4) << (8 * k);
+                next[static_cast<std::size_t>(y) * lw + x] = c;
+                store(out + level_off[l], lw, x, y, c);
+            }
+        lvl.swap(next);
     }
     sceKernelDcacheWritebackRange(out, bytes);
     e.memory = out;
@@ -424,6 +462,8 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     e.tex.format = format;
     e.tex.width = iw;
     e.tex.height = ih;
+    e.tex.levels = levels;
+    for (int l = 0; l < levels; ++l) e.tex.level[l] = out + level_off[l];
     e.tex.u_scale = static_cast<float>(used_w) / static_cast<float>(fx);
     e.tex.v_scale = static_cast<float>(used_h) / static_cast<float>(fy);
     g_stats.bytes += bytes;
@@ -466,6 +506,8 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
         dream::render::unpack_palette(
             palette_ram, static_cast<dream::render::PaletteFormat>(g_palette_format), g_palette);
 }
+
+void texcache_set_mipmaps(bool on) { g_mipmaps = on; }
 
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
                               const SoftSpec* soft) {

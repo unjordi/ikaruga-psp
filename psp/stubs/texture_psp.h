@@ -28,6 +28,10 @@ struct GeTexture {
     // mirrored axis the image holds the texture and its mirror image side by side, so the image is
     // twice this along that axis.
     float u_scale = 0, v_scale = 0;
+    // Mipmapped textures (TCW bit 31): the chain the GE samples, each level the previous reduced
+    // 2x2 (level[0] == pixels, level l is (width >> l) x (height >> l)). 1 when not mipmapped.
+    int levels = 1;
+    const void* level[8] = {};
 };
 
 struct TextureCacheStats {
@@ -76,6 +80,9 @@ struct SoftRect {
     int x = 0, y = 0, w = 0, h = 0;
 };
 SoftRect soft_rect(const SoftSpec& s);
+// mipmaps=0 in ikaruga.cfg: upload only the base level of mipmapped textures (the contraprueba).
+void texcache_set_mipmaps(bool on);
+
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
                               const SoftSpec* soft = nullptr);
 TextureCacheStats texcache_stats();

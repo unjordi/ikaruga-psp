@@ -127,6 +127,27 @@ escena: `scripts/escenas-flycast.sh` da `DESFASE_1000=3`, `DESFASE_1750=-20`, `D
 | 2350 | 17,22 / 0,669 | 2333: 26,73 / 0,948 | |
 | 2700 | 17,25 / 0,550 | 2683: 26,04 / 0,904 | 30,58 / 0,924 (16,13 / 0,226 en el 2700) |
 
+### Pasos 44 y 46 re-medidos en el cuadro alineado
+
+Los datos de los pasos 44 (`ala:190,135,360,170`) y 46 (`cielo-sup:105,0,375,60`) eran contra la
+serie por reloj de pared. Re-medidos (develop f7acfd8, build `float`, disco real, BIOS) con
+`capturar-flycast-cuadro.sh --cuadros` N−21…N−13 y `comparar-flycast.sh --captura … --imagen …`
+repetido; en los tres el mejor cuadro es N−17 (`DESFASE_2300=-17`, `DESFASE_2600=-17` nuevos):
+
+| PSP ↔ Flycast | todo | ala | cielo-sup | nubes |
+|---|---|---|---|---|
+| 2300 ↔ 2283 | 30,12 / 0,964 | 24,24 / 0,844 | 31,43 / 0,946 | 27,48 / 0,878 |
+| 2350 ↔ 2333 | 26,73 / 0,948 | 19,50 / 0,773 | 33,27 / 0,980 | 36,05 / 0,986 |
+| 2600 ↔ 2583 | 22,74 / 0,856 | 19,53 / 0,615 | 22,47 / 0,842 | 20,71 / 0,788 |
+
+A ojo (parejas ampliadas): en el 2300 el panel del satélite sigue saliendo en la PSP como un peine
+de rayas oscuras donde Flycast dibuja un plano gris translúcido: **el defecto del paso 44 es real**.
+El cielo alto del 2300 es igual en los dos (mismas nubes, misma línea del HUD): **las «franjas
+diagonales» del paso 46 eran el desfase de la serie vieja**, no un defecto. Causa del peine: las
+texturas mipmapped se subían sin cadena (docs/video-psp.md «Mipmaps»); con la cadena, `ala` 28,36 /
+0,927 (2300), 20,10 / 0,797 (2350), 19,85 / 0,645 (2600), `cielo-sup` 32,81 / 0,956, 33,28 / 0,980,
+23,75 / 0,874.
+
 ## La serie de referencia
 
 `build/flycast/ref/` (ignorada por git): 60 s a 10 fps con las pulsaciones del capítulo 1

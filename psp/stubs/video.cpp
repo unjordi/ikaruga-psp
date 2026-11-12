@@ -708,14 +708,27 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                     texturing = true;
                 }
                 if (item.tex->pixels != bound) {
-                    sceGuTexMode(item.tex->format, 0, 0, GU_TRUE);
+                    sceGuTexMode(item.tex->format, item.tex->levels - 1, 0, GU_TRUE);
                     sceGuTexImage(0, item.tex->width, item.tex->height, item.tex->width,
                                   item.tex->pixels);
+                    for (int l = 1; l < item.tex->levels; ++l)
+                        sceGuTexImage(l, item.tex->width >> l, item.tex->height >> l,
+                                      item.tex->width >> l, item.tex->level[l]);
                     sceGuTexFlush();
                     bound = item.tex->pixels;
                 }
                 sceGuTexFunc(item.tfx, item.tcc);
-                sceGuTexFilter(item.filter, item.filter);
+                // Mipmapped (TCW bit 31): the level by the GE's own slope (3D mode) as the PowerVR
+                // picks it; the minifying filter keeps the strip's own point/bilinear choice.
+                if (item.tex->levels > 1) {
+                    sceGuTexLevelMode(GU_TEXTURE_AUTO, 0.0f);
+                    const int min_filter = item.filter == GU_NEAREST
+                        ? GU_NEAREST_MIPMAP_NEAREST
+                        : GU_LINEAR_MIPMAP_NEAREST;
+                    sceGuTexFilter(min_filter, item.filter);
+                } else {
+                    sceGuTexFilter(item.filter, item.filter);
+                }
                 sceGuTexWrap(item.wrap_u, item.wrap_v);
             } else if (texturing) {
                 sceGuDisable(GU_TEXTURE_2D);
