@@ -1,7 +1,8 @@
-diff -ruN a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
---- a/runtime/include/dream/runtime/mem/dc_memory.h	2026-11-11 17:27:44.891264114 -0600
-+++ b/runtime/include/dream/runtime/mem/dc_memory.h	2026-11-11 17:37:08.717519053 -0600
-@@ -219,7 +219,7 @@
+diff --git a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
+index 46f30ae..f6ecb32 100644
+--- a/runtime/include/dream/runtime/mem/dc_memory.h
++++ b/runtime/include/dream/runtime/mem/dc_memory.h
+@@ -219,7 +219,7 @@ public:
      // bursts invisible to both: a run could differ from another in 32 bytes at a time and the
      // write hash would call the two identical. Anything that memcpys into `t.bytes` must call
      // this (docs/write-coverage.md).
@@ -10,7 +11,7 @@ diff -ruN a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/drea
          if (hash_writes)
              note_write(addr, value, size);
          if ((addr & 0x1FFFFFFFu) >= watch_lo && (addr & 0x1FFFFFFFu) < watch_hi && on_watch_write)
-@@ -256,14 +256,14 @@
+@@ -256,14 +256,14 @@ public:
      std::uint64_t sq_tlb_misses = 0;   // bursts it did not map; QACR used instead
  
      // Memory interface
@@ -33,10 +34,11 @@ diff -ruN a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/drea
      void sq_write32(std::uint32_t a, std::uint32_t v) override;
      void sq_flush(std::uint32_t a) override;
  
-diff -ruN a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runtime/memory.h
---- a/runtime/include/dream/runtime/memory.h	2026-11-11 17:27:44.878381313 -0600
-+++ b/runtime/include/dream/runtime/memory.h	2026-11-11 17:36:42.951725729 -0600
-@@ -16,17 +16,109 @@
+diff --git a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runtime/memory.h
+index 6680b09..266f65e 100644
+--- a/runtime/include/dream/runtime/memory.h
++++ b/runtime/include/dream/runtime/memory.h
+@@ -16,17 +16,105 @@ namespace dream {
  class Memory {
  public:
      virtual ~Memory() = default;
@@ -49,13 +51,9 @@ diff -ruN a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runti
 -    virtual void write32(std::uint32_t addr, std::uint32_t v) = 0;
 -    virtual void write64(std::uint32_t addr, std::uint64_t v) = 0;
 +
-+    // Fast path (patches/dream-recomp/0013): area 3 (main RAM, 0x0C000000-0x0FFFFFFF, through any
-+    // of P0/P1/P2/P3; P4 at 0xE0000000 and above excluded) goes straight to fast_ram_ + (a &
-+    // 0x00FFFFFF) without a virtual call or DcMemory::resolve. Everything else falls to the
-+    // *_slow virtuals, which are the old accessors unchanged. A RAM store still reports through
-+    // note_ram_write (write hash, write log window, watch) exactly as the slow store did; what it
-+    // no longer does is the undo journal (DcMemory::journaling), which only the differential
-+    // interpreter (devinterp/replay.cpp) turns on and which is not linked in the PSP build.
++    // Area 3 RAM (0x0C000000-0x0FFFFFFF through P0-P3) goes straight to fast_ram_; the rest to the
++    // *_slow virtuals. A RAM store still calls note_ram_write (hash, log window, watch) but skips the
++    // undo journal, which only devinterp/replay.cpp turns on and the PSP build does not link.
 +    static bool is_ram(std::uint32_t a) noexcept {
 +        return a < 0xE0000000u && (a & 0x1C000000u) == 0x0C000000u;
 +    }
@@ -154,7 +152,7 @@ diff -ruN a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runti
  };
  
  // 16 MB of main RAM at every alias of area 3 (0x0C000000 physical), nothing else. Accesses outside
-@@ -35,39 +127,43 @@
+@@ -35,39 +123,43 @@ class BareMemory final : public Memory {
  public:
      static constexpr std::uint32_t kRamSize = 16u * 1024 * 1024;
  
@@ -210,10 +208,11 @@ diff -ruN a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runti
  private:
      std::uint32_t idx(std::uint32_t a) const {
          // Any P0/P1/P2/P3 alias of area 3 lands in RAM; RAM itself is mirrored across the 64 MB
-diff -ruN a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
---- a/runtime/src/mem/dc_memory.cpp	2026-11-11 17:27:44.889184683 -0600
-+++ b/runtime/src/mem/dc_memory.cpp	2026-11-11 17:37:08.717732431 -0600
-@@ -120,7 +120,9 @@
+diff --git a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
+index c7cf02a..0719190 100644
+--- a/runtime/src/mem/dc_memory.cpp
++++ b/runtime/src/mem/dc_memory.cpp
+@@ -120,7 +120,9 @@ DcMemory::DcMemory()
        bios_(new std::uint8_t[kBiosSize]()),
  #endif
        flash_(new std::uint8_t[kFlashSize]()),
@@ -224,7 +223,7 @@ diff -ruN a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
  
  void DcMemory::map_mmio(std::uint32_t lo, std::uint32_t hi, MmioHandler* h) {
      phys_mmio_.push_back({lo, hi, h});
-@@ -302,13 +304,13 @@
+@@ -302,13 +304,13 @@ void DcMemory::redo_journal() {
      }
  }
  
@@ -241,7 +240,7 @@ diff -ruN a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
      if ((a & 0xFFFFFFC0u) == 0xFF000000u) {  // CCN: MMU and cache control, exception registers
          switch (a & 0x3Cu) {
              case 0x20:
-@@ -327,7 +329,7 @@
+@@ -327,7 +329,7 @@ std::uint32_t DcMemory::read32(std::uint32_t a) {
      }
      return load<std::uint32_t>(a);
  }
@@ -250,7 +249,7 @@ diff -ruN a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
      const Target t = resolve(a, 8, false);
      if (t.kind == Target::kBytes) {
          std::uint64_t v;
-@@ -339,13 +341,13 @@
+@@ -339,13 +341,13 @@ std::uint64_t DcMemory::read64(std::uint32_t a) {
                 (static_cast<std::uint64_t>(t.mmio->read(t.mmio_addr + 4, 4)) << 32);
      return 0;
  }
@@ -267,7 +266,7 @@ diff -ruN a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
      if ((a & 0xFFFFFFC0u) == 0xFF000000u) {
          switch (a & 0x3Cu) {
              case 0x20:
-@@ -375,7 +377,7 @@
+@@ -375,7 +377,7 @@ void DcMemory::write32(std::uint32_t a, std::uint32_t v) {
      }
      store<std::uint32_t>(a, v);
  }
