@@ -49,6 +49,7 @@ struct Entry {
     std::uint32_t epoch = 0;    // the VRAM write epoch source_hash is valid for
     std::uint32_t used = 0;     // the last render that asked for it
     bool failed = false;
+    bool soft = false;  // prefiltered copy for minified bilinear quads
 };
 
 bool g_enabled = true;
@@ -179,6 +180,49 @@ bool make_room(std::uint32_t bytes) {
     return true;
 }
 
+// The GE format of an entry: a soft copy of a 1-bit-alpha image needs the in-between alphas.
+int entry_format(const Entry& e) {
+    const int f = ge_format(e.info);
+    return e.soft && f == GU_PSM_5551 ? GU_PSM_4444 : f;
+}
+
+// Minified bilinear quads: the hardware draws at 640x480 and the screen seen is that image box-
+// filtered to 480x272, so a texture shrunk on screen reaches it averaged over neighbouring texels;
+// the GE at 480x272 takes only the 4 nearest (thin strokes come out broken and too sharp: the menu
+// legend, 2.2 texels per pixel vertically). The soft copy is the image passed through a 1-2-1
+// tent in both axes, weighted by alpha (colour of transparent texels does not bleed in).
+void soften(std::vector<std::uint32_t>& rgba, int w, int h) {
+    std::vector<float> pm(static_cast<std::size_t>(w) * h * 4), tmp(pm.size());
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        const std::uint32_t c = rgba[i];
+        const float a = static_cast<float>(c >> 24);
+        for (int k = 0; k < 3; ++k) pm[i * 4 + k] = static_cast<float>((c >> (8 * k)) & 0xFFu) * a;
+        pm[i * 4 + 3] = a;
+    }
+    const auto pass = [&](const std::vector<float>& in, std::vector<float>& out, bool horiz) {
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const int x0 = horiz ? std::max(x - 1, 0) : x, x1 = horiz ? std::min(x + 1, w - 1) : x;
+                const int y0 = horiz ? y : std::max(y - 1, 0), y1 = horiz ? y : std::min(y + 1, h - 1);
+                const std::size_t c = (static_cast<std::size_t>(y) * w + x) * 4;
+                const std::size_t a = (static_cast<std::size_t>(y0) * w + x0) * 4;
+                const std::size_t b = (static_cast<std::size_t>(y1) * w + x1) * 4;
+                for (int k = 0; k < 4; ++k)
+                    out[c + k] = 0.25f * in[a + k] + 0.5f * in[c + k] + 0.25f * in[b + k];
+            }
+    };
+    pass(pm, tmp, true);
+    pass(tmp, pm, false);
+    for (std::size_t i = 0; i < rgba.size(); ++i) {
+        const float a = pm[i * 4 + 3];
+        std::uint32_t c = static_cast<std::uint32_t>(a + 0.5f) << 24;
+        if (a > 0.0f)
+            for (int k = 0; k < 3; ++k)
+                c |= static_cast<std::uint32_t>(std::min(pm[i * 4 + k] / a + 0.5f, 255.0f)) << (8 * k);
+        rgba[i] = c;
+    }
+}
+
 // Decodes, mirrors, reduces, packs and swizzles `e.info` into a new image.
 bool build(Entry& e, bool mirror_u, bool mirror_v) {
     const std::uint64_t t0 = clock_us();
@@ -189,7 +233,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         while (w > kMaxSide) w /= 2;
         while (h > kMaxSide) h /= 2;
         const std::uint32_t need =
-            static_cast<std::uint32_t>(w * h * (ge_format(e.info) == GU_PSM_8888 ? 4 : 2));
+            static_cast<std::uint32_t>(w * h * (entry_format(e) == GU_PSM_8888 ? 4 : 2));
         if (!make_room(need)) {
             ++g_stats.over_budget, ++g_stats.render_over_budget;
             return false;
@@ -224,8 +268,10 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     while (vw / fx > kMaxSide) fx *= 2;
     while (vh / fy > kMaxSide) fy *= 2;
     const int iw = vw / fx, ih = vh / fy;
-    const int format = ge_format(e.info);
+    const int format = entry_format(e);
     const int bpp = format == GU_PSM_8888 ? 4 : 2;
+    if (e.soft)
+        soften(rgba, w, h);
     const std::uint32_t bytes = static_cast<std::uint32_t>(iw * ih * bpp);
     if (!make_room(bytes)) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
@@ -324,15 +370,18 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
             palette_ram, static_cast<dream::render::PaletteFormat>(g_palette_format), g_palette);
 }
 
-const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v) {
+const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
+                              bool soft) {
     if (!g_enabled || !g_vram)
         return nullptr;
     ++g_stats.requests;
     const std::uint64_t key = (static_cast<std::uint64_t>(tcw) << 32) | (tsp & 0x3Fu) |
-                              (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u);
+                              (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u) |
+                              (soft ? 0x100u : 0u);
     auto it = g_entries.find(key);
     if (it == g_entries.end()) {
         Entry e;
+        e.soft = soft;
         if (!dream::render::describe_texture(tcw, tsp, 0, e.info)) {
             e.failed = true;
             ++g_stats.failed;
@@ -350,7 +399,7 @@ const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_
         while (w > kMaxSide) w /= 2;
         while (h > kMaxSide) h /= 2;
         g_stats.render_demand +=
-            static_cast<std::uint32_t>(w * h * (ge_format(e.info) == GU_PSM_8888 ? 4 : 2));
+            static_cast<std::uint32_t>(w * h * (entry_format(e) == GU_PSM_8888 ? 4 : 2));
         ++g_stats.render_images;
         g_stats.peak_demand = std::max(g_stats.peak_demand, g_stats.render_demand);
     }

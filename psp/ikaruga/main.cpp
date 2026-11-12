@@ -649,9 +649,9 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
-            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " hairlines %" PRIu32 " minified %" PRIu32 " texture_renders %"
+            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " hairlines %" PRIu32 " minified %" PRIu32 " softened %" PRIu32 " texture_renders %"
                 PRIu64 " last_texture_target 0x%06" PRIx32 " fb_w_ctrl 0x%08" PRIx32
-                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, st.hairlines, st.minified, texture_renders,
+                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, st.hairlines, st.minified, st.softened, texture_renders,
                 texture_target, pvr.reg(0x048), pvr.reg(0x060));
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32

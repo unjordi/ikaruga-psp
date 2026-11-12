@@ -57,7 +57,8 @@ void texcache_configure(bool enabled, std::uint32_t budget_bytes);
 void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
                           const std::uint32_t* palette_ram, unsigned palette_format,
                           const std::uint32_t* page_epoch = nullptr, std::uint32_t epoch = 0);
-const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v);
+const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
+                              bool soft = false);
 TextureCacheStats texcache_stats();
 // Frees every cached image (the GE must be done with them); the next render decodes again.
 void texcache_release_all();

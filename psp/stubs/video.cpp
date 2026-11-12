@@ -244,7 +244,28 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             const bool clamp_v = dream::render::tsp_clamp_v(tsp) || !tiles;
             const bool mirror_u = !clamp_u && dream::render::tsp_flip_u(tsp);
             const bool mirror_v = !clamp_v && dream::render::tsp_flip_v(tsp);
-            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v);
+            // Minified bilinear quads (more than 1.5 texels per screen pixel on an axis) take the
+            // cache's prefiltered copy: see soften() in texture_psp.cpp.
+            bool soft = false;
+            // Only small 1-bit-alpha images (ARGB1555, at most 16384 texels): the text the game
+            // composes in VRAM. Prefiltered copies of the 3D textures would double the cache.
+            const float tw = static_cast<float>(8u << (tsp >> 3 & 7u));
+            const float th = static_cast<float>(8u << (tsp & 7u));
+            if (g_hairlines && p.count == 4 && dream::render::tsp_filter_mode(tsp) != 0 &&
+                ((p.tcw >> 27) & 7u) == 0 && tw * th <= 16384.0f) {
+                const dream::render::Vertex* q = &frame.vertices[p.first];
+                for (int k : {1, 2}) {
+                    const float dx = std::fabs(q[k].x - q[0].x) * kScaleX;
+                    const float dy = std::fabs(q[k].y - q[0].y) * kScaleY;
+                    const float du = std::fabs(q[k].u - q[0].u) * tw;
+                    const float dv = std::fabs(q[k].v - q[0].v) * th;
+                    if ((dx >= 1.0f && du / dx > 1.5f) || (dy >= 1.0f && dv / dy > 1.5f))
+                        soft = true;
+                }
+            }
+            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v, soft);
+            if (soft && item.tex)
+                ++stats.softened;
             if (item.tex) {
                 const unsigned shading = dream::render::tsp_shading_instruction(tsp);
                 const bool ignore_ta = dream::render::tsp_ignore_texture_alpha(tsp) != 0;

@@ -27,6 +27,7 @@ struct VideoStats {
     std::uint32_t fogged = 0;  // strips drawn with fog
     std::uint32_t hairlines = 0;  // sub-pixel untextured quads widened to one pixel
     std::uint32_t minified = 0;   // point-sampled quads sampled bilinearly (minified)
+    std::uint32_t softened = 0;   // minified bilinear quads given a prefiltered texture
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
