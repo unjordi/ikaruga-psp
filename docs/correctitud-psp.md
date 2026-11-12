@@ -84,5 +84,5 @@ tarda unos 1 500 s de PPSSPP en llegar al cuadro 2600.
 - Igualdad con el PC: sin entrada hasta el cuadro 600; en `double`, con las pulsaciones del capítulo 1
   hasta el 2600. Con otra entrada o más allá puede aparecer otra diferencia de FPU.
 - VMU: si se corta la energía entre `sceIoRemove` y `sceIoRename` solo queda `VMU.BIN.TMP` y el
-  arranque no la recupera (plan, paso 70). Cada escritura de bloque reescribe 128 KB; su costo en una
+  arranque no la recupera (plan, paso «Tarjeta de memoria»). Cada escritura de bloque reescribe 128 KB; su costo en una
   Memory Stick real no se midió.

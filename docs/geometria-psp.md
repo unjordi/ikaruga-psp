@@ -14,7 +14,7 @@ Mediciones de la fila que lo construyó: `docs/mediciones/geometria-psp.md`.
   escribir z. Texturas, niebla y recorte: `docs/titulo-psp.md`, `docs/video-psp.md`.
 - z-buffer de 16 bits: el 1/w de cada cuadro (`min_z..max_z`) repartido en 1..65535, comparación del
   ISP traducida tal cual (mayor = más cerca, borrado a 0). Doble búfer en eDRAM: 2 × 512×272×4 + z
-  512×272×2 (1,33 MB de 2 MB). Sin orientación TATE (plan, paso 48).
+  512×272×2 (1,33 MB de 2 MB). Sin orientación TATE (plan, paso «Pantalla en TATE en la PSP»).
 - Lista del GE de 1 MiB: `video_draw_frame` corta el render y cuenta `dropped` antes de escribir más
   allá de `g_list`.
 - Captura: copia del búfer visible a RAM con `sceGuCopyImage` (leer la eDRAM directo desde la CPU da una
