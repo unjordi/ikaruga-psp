@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The console clock is seeded from ikaruga.cfg, not from the host's time: writes rtc_seed = 1000
+# The console clock is seeded from ikaruga.cfg, not from the host's time: writes rtc_semilla = 1000
 # into ikaruga.cfg, runs the EBOOT in PPSSPP and requires the AICA RTC to read
 # 1000 + 631152000 (1950->1970) + 1 at frame 60 (one tick every 200M guest cycles, as on PC).
 #   scripts/test-psp-rtc.sh <EBOOT.PBP> <dir-juego-extraido> [segundos (default 30)]

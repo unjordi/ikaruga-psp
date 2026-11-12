@@ -1,6 +1,5 @@
-// Row 8: the GD-ROM served from an ISO 9660 image of the game area on ms0:, read with sceIo.
-// The image is built on the host (scripts/preparar-disco-ikaruga.sh) with its sector numbers
-// starting at LBA 45000 and IP.BIN in its system area, so its sector N is the disc's 45000+N.
+// The GD-ROM served from DISCO.ISO on ms0:, read with sceIo: the dump of the disc's game area made
+// by tools/volcar-area-hd (docs/primer-uso.md), whose sector N is the disc's 45000+N.
 // Tracks 1 and 2 (the single-density area) are only described for the TOC and read as zeros.
 #include <pspiofilemgr.h>
 

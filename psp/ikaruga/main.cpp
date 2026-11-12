@@ -1,6 +1,6 @@
-// PSP entry point: wires dream-recomp's core the way runtime/boot/boot_main.cpp does, headless,
-// with every host service routed through psp/stubs/host.h. The run has no end of its own: every
-// kLogEvery guest frames it appends one line to kLog until the emulator or console is stopped.
+// PSP entry point: wires dream-recomp's core the way runtime/boot/boot_main.cpp does, with every
+// host service routed through psp/stubs/host.h. The game runs until HOME -> Exit or a stop key of
+// ikaruga.cfg; every kLogEvery guest frames it appends a status line to ikaruga.log.
 #include <malloc.h>
 #include <pspkernel.h>
 #include <psppower.h>
@@ -97,18 +97,20 @@ void log_line(const char* fmt, ...) {
         static_cast<std::uint32_t>(n));
 }
 
-// ikaruga.cfg next to the EBOOT: "key = value" lines, '#' starts a comment.
-//   rtc_seed=N        console clock at N seconds since 1970, as PC's --rtc-seed (default 1);
-//                     rtc_semilla is an alias
-//   hash_every=N      frames between "hash" lines (default 60; 1 finds the first frame that
+// ikaruga.cfg next to the EBOOT: "clave = valor" lines, '#' starts a comment. The controller keys
+// (control, umbral_stick, tate, boton_*) are read by input.cpp (docs/controles-psp.md).
+//   rtc_semilla=N     console clock at N seconds since 1970, as PC's --rtc-seed (default 1)
+//   hash_cada=N       frames between "hash" lines (default 60; 1 finds the first frame that
 //                     differs from PC)
-//   log_from=I        with log_count=N: guest stores [I, I+N) go to writes.log
-//   test_exit_at=N    at guest frame N notify the exit callback (as HOME -> Exit)
-//   test_suspend_at=N at guest frame N run a suspend and resume
+//   log_desde=I       with log_cantidad=N: guest stores [I, I+N) go to writes.log
+//   prueba_salida_en=N     at guest frame N notify the exit callback (as HOME -> Exit)
+//   prueba_suspension_en=N at guest frame N run a suspend and resume
 //   capturar_en=N     after the first render at or past guest frame N is drawn, write the screen
 //                     to captura-N.raw (RGB888, top row first) and quit
 //   max_cuadros=N     quit at guest frame N
 //   pulsar=...        scripted presses, PC's --press syntax (start@700,a@1400)
+//   cargar_estado=F   start from the saved state F instead of the boot (docs/estado-guardado.md)
+//   guardar_estado_en=N  write estado-N.bin at the first wait for vblank at or past frame N
 //   dibujar=0         clear and swap every frame but draw no geometry
 //   dibujar_desde=N   do not call the video at all before guest frame N (the guest runs the same;
 //                     the video only reads guest state): faster runs that capture frame >= N
@@ -122,6 +124,7 @@ void log_line(const char* fmt, ...) {
 //   memoria=1         memory counter (docs/memoria-psp.md): every memoria_cada guest frames and at
 //                     the capture, a "mem:" line with the free memory and the heap peaks
 //   memoria_cada=N    frames between "mem:" lines (default 60)
+// Keys that used to be spelled in English are ignored with a warning in the log (kRenamed).
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -146,43 +149,38 @@ struct Config {
     std::uint32_t memory_every = kLogEvery;
 };
 
-std::string trimmed(const std::string& s) {
-    const std::size_t a = s.find_first_not_of(" \t\r");
-    if (a == std::string::npos)
-        return {};
-    return s.substr(a, s.find_last_not_of(" \t\r") + 1 - a);
-}
+struct RenamedKey {
+    const char* old_name;
+    const char* name;
+};
+constexpr RenamedKey kRenamed[] = {
+    {"rtc_seed", "rtc_semilla"},
+    {"hash_every", "hash_cada"},
+    {"log_from", "log_desde"},
+    {"log_count", "log_cantidad"},
+    {"test_exit_at", "prueba_salida_en"},
+    {"test_suspend_at", "prueba_suspension_en"},
+};
 
-Config read_config() {
+Config read_config(const std::vector<ikaruga::host::CfgEntry>& entries) {
     Config cfg;
-    std::vector<std::uint8_t> raw;
-    if (!ikaruga::host::file_read(path_in_dir("ikaruga.cfg").c_str(), raw))
-        return cfg;
-    std::string text(raw.begin(), raw.end());
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-        std::size_t end = text.find('\n', pos);
-        if (end == std::string::npos)
-            end = text.size();
-        std::string line = text.substr(pos, end - pos);
-        pos = end + 1;
-        line = line.substr(0, line.find('#'));
-        const std::size_t eq = line.find('=');
-        if (eq == std::string::npos)
-            continue;
-        const std::string key = trimmed(line.substr(0, eq)), value = trimmed(line.substr(eq + 1));
+    for (const auto& [key, value] : entries) {
         const auto number = [&value] { return std::strtoull(value.c_str(), nullptr, 0); };
-        if (key == "rtc_seed" || key == "rtc_semilla")
+        for (const RenamedKey& r : kRenamed)
+            if (key == r.old_name)
+                log_line("warning: ikaruga.cfg key '%s' is ignored; its name is now '%s'", r.old_name,
+                    r.name);
+        if (key == "rtc_semilla")
             cfg.rtc_seed = static_cast<std::uint32_t>(number());
-        else if (key == "hash_every")
+        else if (key == "hash_cada")
             cfg.hash_every = static_cast<std::uint32_t>(number());
-        else if (key == "log_from")
+        else if (key == "log_desde")
             cfg.log_from = number();
-        else if (key == "log_count")
+        else if (key == "log_cantidad")
             cfg.log_count = number();
-        else if (key == "test_exit_at")
+        else if (key == "prueba_salida_en")
             cfg.test_exit_at = static_cast<std::uint32_t>(number());
-        else if (key == "test_suspend_at")
+        else if (key == "prueba_suspension_en")
             cfg.test_suspend_at = static_cast<std::uint32_t>(number());
         else if (key == "capturar_en")
             cfg.capture_at = number();
@@ -355,8 +353,8 @@ void log_fpu_probe() {
 
 struct ExitRequested {};
 
-// Debug keys of ikaruga.cfg: test_exit_at = frame notifies the exit callback (as HOME -> Exit);
-// test_suspend_at = frame runs a suspend and resume: the power events, with the disc's descriptor
+// Debug keys of ikaruga.cfg: prueba_salida_en = frame notifies the exit callback (as HOME -> Exit);
+// prueba_suspension_en = frame runs a suspend and resume: the power events, with the disc's descriptor
 // closed in between as the kernel does.
 void test_hooks(std::uint64_t frame, std::uint32_t exit_at, std::uint32_t suspend_at,
     dream::gdrom::Disc& disc) {
@@ -401,7 +399,8 @@ int main(int argc, char** argv) {
     host::audio_init(44100);
     log_line("ikaruga-psp: log every %" PRIu64 " guest frames", kLogEvery);
     log_fpu_probe();
-    const Config cfg = read_config();
+    const std::vector<host::CfgEntry> cfg_entries = host::cfg_read(path_in_dir("ikaruga.cfg").c_str());
+    const Config cfg = read_config(cfg_entries);
     if (cfg.memory) {
         log_memory("heap-at-start");  // arena + largest_block = the whole heap, before the guest
         log_memory_counter("start", 0);
@@ -411,17 +410,17 @@ int main(int argc, char** argv) {
     host::video_set_clip(cfg.clip);
     host::video_set_fog(cfg.fog);
     host::texcache_configure(cfg.textures, cfg.texture_kb * 1024u);
-    host::input_config(path_in_dir("ikaruga.cfg").c_str());
+    host::input_config(cfg_entries);
     const std::size_t presses = host::input_script(cfg.presses);
     log_line("config: capturar_en %" PRIu64 " max_cuadros %" PRIu64 " presses %zu dibujar %d "
-        "dibujar_desde %" PRIu64 " rtc_seed %" PRIu32 " texturas %d texturas_kb %" PRIu32,
+        "dibujar_desde %" PRIu64 " rtc_semilla %" PRIu32 " texturas %d texturas_kb %" PRIu32,
         cfg.capture_at, cfg.max_frames, presses, cfg.draw ? 1 : 0, cfg.draw_from, cfg.rtc_seed,
         cfg.textures ? 1 : 0, cfg.texture_kb);
 
     const std::string program_path = path_in_dir("1ST_READ.BIN");
     std::vector<std::uint8_t> program;
     if (!host::file_read(program_path.c_str(), program) || program.empty()) {
-        log_line("error: cannot read %s; copy the game's 1ST_READ.BIN there", program_path.c_str());
+        log_line("error: cannot read %s; copy the game's 1ST_READ.BIN there (docs/primer-uso.md)", program_path.c_str());
         return quit(2);
     }
     const std::uint32_t offset = kLoadAddress & (dream::mem::DcMemory::kRamSize - 1);
@@ -435,7 +434,8 @@ int main(int argc, char** argv) {
     std::string err;
     std::unique_ptr<dream::gdrom::Disc> disc = host::disc_open(disc_path.c_str(), err);
     if (!disc) {
-        log_line("error: disc: %s; build it with scripts/preparar-disco-ikaruga.sh", err.c_str());
+        log_line("error: disc: %s; DISCO.ISO is the dump of the game area made with tools/volcar-area-hd "
+            "(docs/primer-uso.md)", err.c_str());
         return quit(2);
     }
 
@@ -497,7 +497,7 @@ int main(int argc, char** argv) {
     dream::maple::Bus maple(sys.sched, sys.holly, sys.memory);
     auto pad = std::make_unique<dream::maple::Controller>();
     dream::maple::Controller* pad_ptr = pad.get();
-    // Row 9: the memory card image on ms0:, or a blank card when there is none.
+    // The memory card image on ms0:, or a blank card when there is none.
     auto card = std::make_unique<dream::maple::MemoryCard>();
     if (host::vmu_load(path_in_dir("VMU.BIN").c_str(), *card))
         log_line("memory card: read VMU.BIN");
@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
             host_s > 0 ? guest_s / host_s : 0.0, sys.idle_skips, sys.idle_skipped_cycles,
             sys.ctx.pc);
     };
-    // Rows 1-4: every render the guest starts is decoded and drawn. The polygon count is the
+    // Every render the guest starts is decoded and drawn. The polygon count is the
     // decoded stream's, before the background plane is added, so it matches the PC launcher's.
     dream::render::DisplayList decoder;
     std::uint64_t renders = 0, draw_us = 0;

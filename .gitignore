@@ -42,3 +42,5 @@ mascara-*.png
 VMU.BIN*
 ikaruga.cfg
 ikaruga.log
+# Log of a local build
+build-out.txt

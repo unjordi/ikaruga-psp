@@ -1,4 +1,4 @@
-// Row 9: the memory card image on ms0:. Read whole at boot; every block write the guest makes
+// The memory card image on ms0:. Read whole at boot; every block write the guest makes
 // rewrites the whole 128 KB image to <path>.TMP, then replaces <path> with it, so a power cut
 // leaves either the old card or the new one, never half of each.
 #include <pspiofilemgr.h>

@@ -1,5 +1,6 @@
-// Host services the PSP build needs from outside dream-recomp's core (the host pieces of
-// docs/plan.md). Audio is still a stub that does nothing.
+// Host services the PSP build needs from outside dream-recomp's core: video (GE), textures,
+// controller, clock, GD-ROM, memory card, files, power callbacks and the ikaruga.cfg reader.
+// Audio is a stub that does nothing.
 #pragma once
 
 #include <cstdint>
@@ -14,7 +15,7 @@
 
 namespace ikaruga::host {
 
-// Rows 1-4: GE context, renderer, presentation; textures in texture_psp.h.
+// Video: GE context, renderer, presentation; textures in texture_psp.h.
 struct VideoStats {
     std::uint32_t drawn = 0;    // strips sent to the GE
     std::uint32_t blended = 0;  // of those, translucent
@@ -43,34 +44,42 @@ void video_set_fog(bool enabled);
 // The buffer on screen as packed RGB888, top row first.
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 
-// Controller. Reads the mapping keys of ikaruga.cfg (docs/controles-psp.md); without the file
-// the defaults stay.
-void input_config(const char* cfg_path);
+// One "key = value" line of ikaruga.cfg.
+struct CfgEntry {
+    std::string key, value;
+};
+// The lines of the file at `path` in order ('#' starts a comment, both sides trimmed); empty
+// when the file is missing.
+std::vector<CfgEntry> cfg_read(const char* path);
+
+// Controller. Takes the mapping keys of ikaruga.cfg (docs/controles-psp.md) from `cfg`; the
+// other keys are ignored and, for the keys not present, the defaults stay.
+void input_config(const std::vector<CfgEntry>& cfg);
 // Scripted presses "name@frame,..." (PC's --press syntax), OR'd with the real buttons; returns
 // how many.
 std::size_t input_script(const std::string& presses);
 void input_poll(dream::maple::ControllerState& pad, std::uint64_t frame);
 
-// Row 6: audio output.
+// Audio output.
 bool audio_init(unsigned rate);
 void audio_push(std::int16_t left, std::int16_t right);
 
-// Row 7: clock and pacing.
+// Clock and pacing.
 std::uint64_t clock_us();
 void clock_wait_vblank();
 
-// Row 8: the GD-ROM, from an ISO image of the game area on ms0: (see psp/stubs/disc.cpp).
+// The GD-ROM, from an ISO image of the game area on ms0: (see psp/stubs/disc.cpp).
 std::unique_ptr<dream::gdrom::Disc> disc_open(const char* path, std::string& error);
 
-// Row 9: memory card. Loads the image at `path`; false (and a blank formatted card) without one.
+// Memory card. Loads the image at `path`; false (and a blank formatted card) without one.
 bool vmu_load(const char* path, dream::maple::MemoryCard& card);
 
-// Rows 10-11: files on ms0:.
+// Files on ms0:.
 bool file_read(const char* path, std::vector<std::uint8_t>& out);
 bool file_write(const char* path, const std::uint8_t* data, std::uint32_t size);
 bool file_append(const char* path, const char* text, std::uint32_t size);
 
-// Row 13: CPU clock; HOME and power callbacks.
+// CPU clock; HOME and power callbacks.
 void process_init();
 void power_init();
 bool exit_requested();
@@ -80,7 +89,7 @@ unsigned resume_count();
 void power_event(int flags);
 // Test hook: notifies the registered exit callback as HOME -> Exit does.
 void test_request_exit();
-// Test hook for row 8: closes the disc's descriptor as a suspend does, keeping the stale number.
+// Test hook for the disc: closes the disc's descriptor as a suspend does, keeping the stale number.
 void disc_lose_handle(dream::gdrom::Disc& disc);
 
 }  // namespace ikaruga::host

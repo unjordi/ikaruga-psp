@@ -1,4 +1,4 @@
-// Row 13: CPU clock, and the HOME (exit) and power callbacks. Both callbacks run in their own
+// CPU clock, and the HOME (exit) and power callbacks. Both callbacks run in their own
 // thread and only set flags; the main thread acts on them between guest frames.
 #include <pspkernel.h>
 #include <psppower.h>
