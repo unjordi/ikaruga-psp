@@ -242,6 +242,24 @@ Arreglarlo exige reproducir exactamente el `SPG_STATUS` por línea; queda pendie
 Los contadores dan 3 `throw` por cuadro (4–13 por segundo de host) en el capítulo 1: aunque cada
 uno costara 1 ms, sería < 1,5 % del tiempo. No se cambió nada.
 
+## Camino rápido a la RAM (paso 33, parche 0013)
+
+Vigente: develop con `0013-fast-ram-path.patch`. Mismo comando que arriba,
+`scripts/medir-velocidad.sh <EBOOT> $G --veces 1 --solo 2600` con limitador, un PPSSPP a la vez:
+
+| EBOOT | speed | host_s | wall_s | imagen |
+|---|---|---|---|---|
+| develop 8254127 | 0,0851 | 509,683 | 517 | 14,90 MB (43,00 de ~52) |
+| + 0013 | 0,0861 | 503,882 | 510 | 14,13 MB (42,23 de ~52) |
+
+Contadores `perf` (cuadros 2580-2600) idénticos en los dos: `fipr/f 4526 ftrv/f 5927 fmac/f 10893
+sched/f 1598 tex_hit/f 985 draw_ms/render ≈26,5`. La ganancia es de ~6 s en 504 (1,1 %): quitar la
+llamada virtual y `resolve` por acceso a RAM no era donde se iba el tiempo en este juego. Lo que
+sigue costando por escritura es `note_ram_write` (virtual, fuera de línea) porque el lanzador de la
+PSP arma siempre `hash_writes` (`start_write_hash` en `psp/ikaruga/main.cpp`); el siguiente candidato
+es hacer el hash opcional cuando no se compara contra nada. `always_inline` forzado en los ocho
+accesos infla la imagen a 22,06 MB y el juego se queda sin heap (`std::bad_alloc` en el cuadro 1482).
+
 ## Resultado y pruebas de aceptación (EBOOT final = `nobios`, commit `a2750eb`)
 
 | prueba | resultado |
