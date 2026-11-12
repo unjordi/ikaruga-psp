@@ -4,7 +4,9 @@
 // Build: g++ -std=c++20 -O2 -Ithird_party/dream-recomp/render/include tools/analizar-ta.cpp \
 //          third_party/dream-recomp/render/src/display_list.cpp -o build/host/analizar-ta
 // ANALIZAR_TA_ESCALONES=1: pairs of overlapping, depth-ordered polygons that share a 16-bit
-// depth step (linear as video.cpp, without the 1/w >= 1 planes, and log2(1/w)).
+// depth step (linear over the whole range, as video.cpp before paso 45; the scene without the
+// 1/w >= 1 planes, as video.cpp now; and log2(1/w)). ANALIZAR_TA_ESCALONES_PARES=1 lists the
+// pairs left with the current split.
 // Bit layout: Flycast core/hw/pvr/ta_structs.h (ISP_TSP, TSP, TCW, PCW).
 #include <algorithm>
 #include <cmath>
@@ -154,7 +156,8 @@ int main(int argc, char** argv) {
         double smax = zmin;  // scene max: below the 1/w >= 1 planes
         for (float z : zs) if (z < 1.0f) smax = std::max(smax, (double)z);
         const auto lin = [&](double z) { return (long)std::floor(1 + (z - zmin) * 65534.0 / (zmax - zmin)); };
-        const auto sin = [&](double z) { return z >= 1.0 ? 65535L : (long)std::floor(1 + (z - zmin) * 64999.0 / (smax - zmin)); };
+        const double hs = zmax > 1.0 ? 534.0 / (zmax - 1.0) : 0.0;  // video.cpp's band for 1/w >= 1
+        const auto sin = [&](double z) { return z >= 1.0 ? (long)std::floor(65001 + (z - 1.0) * hs) : (long)std::floor(1 + (z - zmin) * 64999.0 / (smax - zmin)); };
         const double l0 = std::log2(zmin), l1 = std::log2(zmax);
         const auto lg = [&](double z) { return (long)std::floor(1 + (std::log2(z) - l0) * 65534.0 / (l1 - l0)); };
         const char* names[3] = {"lineal", "sin_hud_fondo", "log2"};
