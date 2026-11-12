@@ -574,7 +574,7 @@ int main(int argc, char** argv) {
             texture_target = pvr.reg(0x060) & 0x00FFFFFFu;
         }
         // dibujar_desde: earlier renders are neither decoded nor drawn; the first drawn render
-        // decodes every texture from the VRAM of that moment (docs/pruebas-rapidas.md §2).
+        // decodes every texture from the VRAM of that moment (docs/pruebas-rapidas.md, dibujar_desde).
         if (sys.spg.frames() < cfg.draw_from)
             return;
         decoder.reset();
