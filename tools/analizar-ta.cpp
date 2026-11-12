@@ -3,6 +3,8 @@
 // dream::render::DisplayList, the same decoder the PSP EBOOT uses.
 // Build: g++ -std=c++20 -O2 -Ithird_party/dream-recomp/render/include tools/analizar-ta.cpp \
 //          third_party/dream-recomp/render/src/display_list.cpp -o build/host/analizar-ta
+// ANALIZAR_TA_ESCALONES=1: pairs of overlapping, depth-ordered polygons that share a 16-bit
+// depth step (linear as video.cpp, without the 1/w >= 1 planes, and log2(1/w)).
 // Bit layout: Flycast core/hw/pvr/ta_structs.h (ISP_TSP, TSP, TCW, PCW).
 #include <algorithm>
 #include <cmath>
@@ -125,6 +127,56 @@ int main(int argc, char** argv) {
         }
         std::printf("z.min %g z.max %g ratio %g distinct %zu step16 %g pairs_closer_than_step %u\n",
                     lo, hi, lo > 0 ? hi / lo : 0.0, zs.size(), step, close);
+    }
+    if (std::getenv("ANALIZAR_TA_ESCALONES")) {
+        // Pairs of opaque/punch-through/translucent polygons whose screen boxes overlap, whose
+        // 1/w ranges do not overlap (a clear front/back order) and that land on the same 16-bit
+        // depth step on the PSP (video.cpp: zbias + (z - zmin) * zscale, truncated by the GE).
+        // Also for two alternative spreads: the range without the 1/w >= 1 planes (HUD, background),
+        // and log2(1/w) over the frame's range.
+        struct B { float x0, y0, x1, y1, lo, hi; unsigned l; };
+        std::vector<B> bs;
+        for (unsigned l = 0; l < 5; ++l)
+            if (l == 0 || l == 2 || l == 4)
+                for (const auto& p : fr.lists[l]) {
+                    B b{1e9f, 1e9f, -1e9f, -1e9f, 1e30f, -1e30f, l};
+                    for (u32 i = 0; i < p.count; ++i) {
+                        const auto& v = fr.vertices[p.first + i];
+                        b.x0 = std::min(b.x0, v.x); b.x1 = std::max(b.x1, v.x);
+                        b.y0 = std::min(b.y0, v.y); b.y1 = std::max(b.y1, v.y);
+                        b.lo = std::min(b.lo, v.z); b.hi = std::max(b.hi, v.z);
+                    }
+                    b.x0 = std::max(b.x0, 0.f); b.y0 = std::max(b.y0, 0.f);
+                    b.x1 = std::min(b.x1, 640.f); b.y1 = std::min(b.y1, 480.f);
+                    if (b.x1 > b.x0 && b.y1 > b.y0) bs.push_back(b);
+                }
+        const double zmin = fr.min_z, zmax = fr.max_z;
+        double smax = zmin;  // scene max: below the 1/w >= 1 planes
+        for (float z : zs) if (z < 1.0f) smax = std::max(smax, (double)z);
+        const auto lin = [&](double z) { return (long)std::floor(1 + (z - zmin) * 65534.0 / (zmax - zmin)); };
+        const auto sin = [&](double z) { return z >= 1.0 ? 65535L : (long)std::floor(1 + (z - zmin) * 65533.0 / (smax - zmin)); };
+        const double l0 = std::log2(zmin), l1 = std::log2(zmax);
+        const auto lg = [&](double z) { return (long)std::floor(1 + (std::log2(z) - l0) * 65534.0 / (l1 - l0)); };
+        const char* names[3] = {"lineal", "sin_hud_fondo", "log2"};
+        for (int m = 0; m < 3; ++m) {
+            unsigned pairs = 0, same = 0, same_op = 0;
+            for (std::size_t i = 0; i < bs.size(); ++i)
+                for (std::size_t j = i + 1; j < bs.size(); ++j) {
+                    const B &a = bs[i], &b = bs[j];
+                    if (a.l == 2 && b.l == 2) continue;  // translucent vs translucent: no depth write
+                    if (a.x1 <= b.x0 || b.x1 <= a.x0 || a.y1 <= b.y0 || b.y1 <= a.y0) continue;
+                    const B& f = a.lo > b.hi ? a : b;   // front
+                    const B& k = a.lo > b.hi ? b : a;   // back
+                    if (!(f.lo > k.hi)) continue;       // ranges overlap: intersecting, not ordered
+                    ++pairs;
+                    const long qf = m == 0 ? lin(f.lo) : m == 1 ? sin(f.lo) : lg(f.lo);
+                    const long qk = m == 0 ? lin(k.hi) : m == 1 ? sin(k.hi) : lg(k.hi);
+                    if (qf <= qk) { ++same; if (a.l != 2 && b.l != 2) ++same_op; }
+                }
+            std::printf("escalones.%s pares_ordenados_que_se_tapan %u mismo_escalon %u (opacos %u)\n",
+                        names[m], pairs, same, same_op);
+        }
+        std::printf("escalones.escena_max %g\n", smax);
     }
     std::printf("frame.min_z %g max_z %g sprites %u strips %u modifiers %zu unknown %u dropped %u\n",
                 fr.min_z, fr.max_z, fr.sprites, fr.strips, fr.modifiers.size(),
