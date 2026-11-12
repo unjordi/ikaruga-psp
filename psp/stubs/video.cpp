@@ -351,11 +351,22 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
     if (!g_ready)
         return stats;
 
-    // Depth: the frame's 1/w range spread over the 16-bit buffer, larger nearer.
-    const float zmin = frame.min_z, zmax = frame.max_z;
+    // Depth: the frame's 1/w range spread over the 16-bit buffer, larger nearer. The HUD and
+    // background planes sit at 1/w >= 1 and the scene at 1e-4..1e-1, so spreading min..max linearly
+    // left the scene in a few dozen steps (paso 45: 1446 overlapping, ordered polygon pairs on the
+    // same step in frame 2000). When both are present, the scene (1/w < 1) gets 1..65000 and the
+    // planes get their own band 65001..65535, which keeps their order among themselves. The 3D
+    // matrix below uses the same zbias/zscale, so the perspective strips stay coherent.
+    const float zmin = frame.min_z;
+    float zmax = zmin;
+    for (const auto& v : frame.vertices)
+        if (v.z < 1.0f && v.z > zmax) zmax = v.z;
+    const bool split = zmax > zmin && frame.max_z >= 1.0f;
+    if (!split) zmax = frame.max_z;
+    const float hud_scale = split && frame.max_z > 1.0f ? 534.0f / (frame.max_z - 1.0f) : 0.0f;
     // 0 is the cleared value, so drawn depth starts at 1 and a GREATER test against an empty
     // pixel passes.
-    const float zscale = zmax > zmin ? 65534.0f / (zmax - zmin) : 0.0f;
+    const float zscale = zmax > zmin ? (split ? 64999.0f : 65534.0f) / (zmax - zmin) : 0.0f;
     const float zbias = zmax > zmin ? 1.0f : 32768.0f;
 
     struct Item {
@@ -527,7 +538,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 o.u = right ? static_cast<float>(rect.w) : 0.0f;
                 o.v = bottom ? static_cast<float>(rect.h) : 0.0f;
             }
-            o.z = std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, 65535.0f);
+            o.z = split && v.z >= 1.0f
+                ? std::clamp(65001.0f + (v.z - 1.0f) * hud_scale, 65001.0f, 65535.0f)
+                : std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, split ? 65000.0f : 65535.0f);
             if (item.fog) {
                 const float f = std::clamp(fog_control == 1
                     ? static_cast<float>(v.offset >> 24) / 255.0f
