@@ -26,7 +26,7 @@ Todo el repo es sin datos del juego: necesitas tu propia copia del disco (`prime
 | [`velocidad-psp.md`](velocidad-psp.md) | cómo se mide la velocidad, dónde está y qué optimizaciones hay |
 | [`memoria-psp.md`](memoria-psp.md) | la memoria del EBOOT contra el presupuesto |
 
-Los scripts están en [`../scripts/README.md`](../scripts/README.md). `scripts/armar-docs.sh` junta el plan y los docs vigentes de esta tabla en un solo PDF.
+Los scripts están en [`../scripts/README.md`](../scripts/README.md).
 
 ## Fotos de medición (`mediciones/`)
 
