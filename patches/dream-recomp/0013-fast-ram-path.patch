@@ -1,0 +1,277 @@
+diff --git a/runtime/include/dream/runtime/mem/dc_memory.h b/runtime/include/dream/runtime/mem/dc_memory.h
+index 46f30ae..f6ecb32 100644
+--- a/runtime/include/dream/runtime/mem/dc_memory.h
++++ b/runtime/include/dream/runtime/mem/dc_memory.h
+@@ -219,7 +219,7 @@ public:
+     // bursts invisible to both: a run could differ from another in 32 bytes at a time and the
+     // write hash would call the two identical. Anything that memcpys into `t.bytes` must call
+     // this (docs/write-coverage.md).
+-    void note_ram_write(std::uint32_t addr, std::uint64_t value, unsigned size) noexcept {
++    void note_ram_write(std::uint32_t addr, std::uint64_t value, unsigned size) noexcept override {
+         if (hash_writes)
+             note_write(addr, value, size);
+         if ((addr & 0x1FFFFFFFu) >= watch_lo && (addr & 0x1FFFFFFFu) < watch_hi && on_watch_write)
+@@ -256,14 +256,14 @@ public:
+     std::uint64_t sq_tlb_misses = 0;   // bursts it did not map; QACR used instead
+ 
+     // Memory interface
+-    std::uint8_t read8(std::uint32_t a) override;
+-    std::uint16_t read16(std::uint32_t a) override;
+-    std::uint32_t read32(std::uint32_t a) override;
+-    std::uint64_t read64(std::uint32_t a) override;
+-    void write8(std::uint32_t a, std::uint8_t v) override;
+-    void write16(std::uint32_t a, std::uint16_t v) override;
+-    void write32(std::uint32_t a, std::uint32_t v) override;
+-    void write64(std::uint32_t a, std::uint64_t v) override;
++    std::uint8_t read8_slow(std::uint32_t a) override;
++    std::uint16_t read16_slow(std::uint32_t a) override;
++    std::uint32_t read32_slow(std::uint32_t a) override;
++    std::uint64_t read64_slow(std::uint32_t a) override;
++    void write8_slow(std::uint32_t a, std::uint8_t v) override;
++    void write16_slow(std::uint32_t a, std::uint16_t v) override;
++    void write32_slow(std::uint32_t a, std::uint32_t v) override;
++    void write64_slow(std::uint32_t a, std::uint64_t v) override;
+     void sq_write32(std::uint32_t a, std::uint32_t v) override;
+     void sq_flush(std::uint32_t a) override;
+ 
+diff --git a/runtime/include/dream/runtime/memory.h b/runtime/include/dream/runtime/memory.h
+index 6680b09..266f65e 100644
+--- a/runtime/include/dream/runtime/memory.h
++++ b/runtime/include/dream/runtime/memory.h
+@@ -16,17 +16,105 @@ namespace dream {
+ class Memory {
+ public:
+     virtual ~Memory() = default;
+-    virtual std::uint8_t read8(std::uint32_t addr) = 0;
+-    virtual std::uint16_t read16(std::uint32_t addr) = 0;
+-    virtual std::uint32_t read32(std::uint32_t addr) = 0;
+-    virtual std::uint64_t read64(std::uint32_t addr) = 0;
+-    virtual void write8(std::uint32_t addr, std::uint8_t v) = 0;
+-    virtual void write16(std::uint32_t addr, std::uint16_t v) = 0;
+-    virtual void write32(std::uint32_t addr, std::uint32_t v) = 0;
+-    virtual void write64(std::uint32_t addr, std::uint64_t v) = 0;
++
++    // Area 3 RAM (0x0C000000-0x0FFFFFFF through P0-P3) goes straight to fast_ram_; the rest to the
++    // *_slow virtuals. A RAM store still calls note_ram_write (hash, log window, watch) but skips the
++    // undo journal, which only devinterp/replay.cpp turns on and the PSP build does not link.
++    static bool is_ram(std::uint32_t a) noexcept {
++        return a < 0xE0000000u && (a & 0x1C000000u) == 0x0C000000u;
++    }
++    std::uint8_t read8(std::uint32_t a) {
++        if (is_ram(a))
++            return fast_ram_[a & 0x00FFFFFFu];
++        return read8_slow(a);
++    }
++    std::uint16_t read16(std::uint32_t a) {
++        if (is_ram(a)) {
++            std::uint16_t v;
++            std::memcpy(&v, fast_ram_ + (a & 0x00FFFFFFu), 2);
++            return v;
++        }
++        return read16_slow(a);
++    }
++    std::uint32_t read32(std::uint32_t a) {
++        if (is_ram(a)) {
++            std::uint32_t v;
++            std::memcpy(&v, fast_ram_ + (a & 0x00FFFFFFu), 4);
++            return v;
++        }
++        return read32_slow(a);
++    }
++    std::uint64_t read64(std::uint32_t a) {
++        if (is_ram(a)) {
++            std::uint64_t v;
++            std::memcpy(&v, fast_ram_ + (a & 0x00FFFFFFu), 8);
++            return v;
++        }
++        return read64_slow(a);
++    }
++    void write8(std::uint32_t a, std::uint8_t v) {
++        if (is_ram(a)) {
++            fast_ram_[a & 0x00FFFFFFu] = v;
++            if (traced_)
++                note_ram_write(a, v, 1);
++            return;
++        }
++        write8_slow(a, v);
++    }
++    void write16(std::uint32_t a, std::uint16_t v) {
++        if (is_ram(a)) {
++            std::memcpy(fast_ram_ + (a & 0x00FFFFFFu), &v, 2);
++            if (traced_)
++                note_ram_write(a, v, 2);
++            return;
++        }
++        write16_slow(a, v);
++    }
++    void write32(std::uint32_t a, std::uint32_t v) {
++        if (is_ram(a)) {
++            std::memcpy(fast_ram_ + (a & 0x00FFFFFFu), &v, 4);
++            if (traced_)
++                note_ram_write(a, v, 4);
++            return;
++        }
++        write32_slow(a, v);
++    }
++    void write64(std::uint32_t a, std::uint64_t v) {
++        if (is_ram(a)) {
++            std::memcpy(fast_ram_ + (a & 0x00FFFFFFu), &v, 8);
++            // Two 4-byte reports, as DcMemory::write64 does.
++            if (traced_) {
++                note_ram_write(a, static_cast<std::uint32_t>(v), 4);
++                note_ram_write(a + 4, static_cast<std::uint32_t>(v >> 32), 4);
++            }
++            return;
++        }
++        write64_slow(a, v);
++    }
+     // Store queue: writes to 0xE0000000..0xE3FFFFFF buffer in the SQ; PREF flushes 32 bytes.
+     virtual void sq_write32(std::uint32_t addr, std::uint32_t v) = 0;
+     virtual void sq_flush(std::uint32_t addr) = 0;
++
++    // Out of line (dc_memory.cpp): write hash, write log window, watch. Called by the fast path
++    // only while traced_ is set; the implementation decides what it reports.
++    virtual void note_ram_write(std::uint32_t addr, std::uint64_t value, unsigned size) noexcept {
++        (void)addr; (void)value; (void)size;
++    }
++
++protected:
++    virtual std::uint8_t read8_slow(std::uint32_t addr) = 0;
++    virtual std::uint16_t read16_slow(std::uint32_t addr) = 0;
++    virtual std::uint32_t read32_slow(std::uint32_t addr) = 0;
++    virtual std::uint64_t read64_slow(std::uint32_t addr) = 0;
++    virtual void write8_slow(std::uint32_t addr, std::uint8_t v) = 0;
++    virtual void write16_slow(std::uint32_t addr, std::uint16_t v) = 0;
++    virtual void write32_slow(std::uint32_t addr, std::uint32_t v) = 0;
++    virtual void write64_slow(std::uint32_t addr, std::uint64_t v) = 0;
++
++    // 16 MB of area 3 RAM; every implementation must set it in its constructor.
++    std::uint8_t* fast_ram_ = nullptr;
++    // True when a RAM store has to be reported (DcMemory: hash or watch armed).
++    bool traced_ = true;
+ };
+ 
+ // 16 MB of main RAM at every alias of area 3 (0x0C000000 physical), nothing else. Accesses outside
+@@ -35,39 +123,43 @@ class BareMemory final : public Memory {
+ public:
+     static constexpr std::uint32_t kRamSize = 16u * 1024 * 1024;
+ 
+-    BareMemory() : ram_(new std::uint8_t[kRamSize]()) {}
++    BareMemory() : ram_(new std::uint8_t[kRamSize]()) {
++        fast_ram_ = ram_.get();
++        traced_ = false;
++    }
+ 
+     std::uint8_t* ram() noexcept { return ram_.get(); }
+ 
+-    std::uint8_t read8(std::uint32_t a) override { return ram_[idx(a)]; }
+-    std::uint16_t read16(std::uint32_t a) override {
++    void sq_write32(std::uint32_t a, std::uint32_t v) override { sq_[(a >> 2) & 15] = v; }
++    void sq_flush(std::uint32_t) override {}  // no QACR mapping in the bare harness
++
++protected:
++    std::uint8_t read8_slow(std::uint32_t a) override { return ram_[idx(a)]; }
++    std::uint16_t read16_slow(std::uint32_t a) override {
+         std::uint16_t v;
+         std::memcpy(&v, ram_.get() + idx(a), 2);
+         return v;
+     }
+-    std::uint32_t read32(std::uint32_t a) override {
++    std::uint32_t read32_slow(std::uint32_t a) override {
+         std::uint32_t v;
+         std::memcpy(&v, ram_.get() + idx(a), 4);
+         return v;
+     }
+-    std::uint64_t read64(std::uint32_t a) override {
++    std::uint64_t read64_slow(std::uint32_t a) override {
+         std::uint64_t v;
+         std::memcpy(&v, ram_.get() + idx(a), 8);
+         return v;
+     }
+-    void write8(std::uint32_t a, std::uint8_t v) override { ram_[idx(a)] = v; }
+-    void write16(std::uint32_t a, std::uint16_t v) override {
++    void write8_slow(std::uint32_t a, std::uint8_t v) override { ram_[idx(a)] = v; }
++    void write16_slow(std::uint32_t a, std::uint16_t v) override {
+         std::memcpy(ram_.get() + idx(a), &v, 2);
+     }
+-    void write32(std::uint32_t a, std::uint32_t v) override {
++    void write32_slow(std::uint32_t a, std::uint32_t v) override {
+         std::memcpy(ram_.get() + idx(a), &v, 4);
+     }
+-    void write64(std::uint32_t a, std::uint64_t v) override {
++    void write64_slow(std::uint32_t a, std::uint64_t v) override {
+         std::memcpy(ram_.get() + idx(a), &v, 8);
+     }
+-    void sq_write32(std::uint32_t a, std::uint32_t v) override { sq_[(a >> 2) & 15] = v; }
+-    void sq_flush(std::uint32_t) override {}  // no QACR mapping in the bare harness
+-
+ private:
+     std::uint32_t idx(std::uint32_t a) const {
+         // Any P0/P1/P2/P3 alias of area 3 lands in RAM; RAM itself is mirrored across the 64 MB
+diff --git a/runtime/src/mem/dc_memory.cpp b/runtime/src/mem/dc_memory.cpp
+index c7cf02a..0719190 100644
+--- a/runtime/src/mem/dc_memory.cpp
++++ b/runtime/src/mem/dc_memory.cpp
+@@ -120,7 +120,9 @@ DcMemory::DcMemory()
+       bios_(new std::uint8_t[kBiosSize]()),
+ #endif
+       flash_(new std::uint8_t[kFlashSize]()),
+-      ocram_(new std::uint8_t[kOcramSize]()) {}
++      ocram_(new std::uint8_t[kOcramSize]()) {
++    fast_ram_ = ram_.get();  // Memory's inline area 3 path (patch 0013)
++}
+ 
+ void DcMemory::map_mmio(std::uint32_t lo, std::uint32_t hi, MmioHandler* h) {
+     phys_mmio_.push_back({lo, hi, h});
+@@ -302,13 +304,13 @@ void DcMemory::redo_journal() {
+     }
+ }
+ 
+-std::uint8_t DcMemory::read8(std::uint32_t a) {
++std::uint8_t DcMemory::read8_slow(std::uint32_t a) {
+     return load<std::uint8_t>(a);
+ }
+-std::uint16_t DcMemory::read16(std::uint32_t a) {
++std::uint16_t DcMemory::read16_slow(std::uint32_t a) {
+     return load<std::uint16_t>(a);
+ }
+-std::uint32_t DcMemory::read32(std::uint32_t a) {
++std::uint32_t DcMemory::read32_slow(std::uint32_t a) {
+     if ((a & 0xFFFFFFC0u) == 0xFF000000u) {  // CCN: MMU and cache control, exception registers
+         switch (a & 0x3Cu) {
+             case 0x20:
+@@ -327,7 +329,7 @@ std::uint32_t DcMemory::read32(std::uint32_t a) {
+     }
+     return load<std::uint32_t>(a);
+ }
+-std::uint64_t DcMemory::read64(std::uint32_t a) {
++std::uint64_t DcMemory::read64_slow(std::uint32_t a) {
+     const Target t = resolve(a, 8, false);
+     if (t.kind == Target::kBytes) {
+         std::uint64_t v;
+@@ -339,13 +341,13 @@ std::uint64_t DcMemory::read64(std::uint32_t a) {
+                (static_cast<std::uint64_t>(t.mmio->read(t.mmio_addr + 4, 4)) << 32);
+     return 0;
+ }
+-void DcMemory::write8(std::uint32_t a, std::uint8_t v) {
++void DcMemory::write8_slow(std::uint32_t a, std::uint8_t v) {
+     store<std::uint8_t>(a, v);
+ }
+-void DcMemory::write16(std::uint32_t a, std::uint16_t v) {
++void DcMemory::write16_slow(std::uint32_t a, std::uint16_t v) {
+     store<std::uint16_t>(a, v);
+ }
+-void DcMemory::write32(std::uint32_t a, std::uint32_t v) {
++void DcMemory::write32_slow(std::uint32_t a, std::uint32_t v) {
+     if ((a & 0xFFFFFFC0u) == 0xFF000000u) {
+         switch (a & 0x3Cu) {
+             case 0x20:
+@@ -375,7 +377,7 @@ void DcMemory::write32(std::uint32_t a, std::uint32_t v) {
+     }
+     store<std::uint32_t>(a, v);
+ }
+-void DcMemory::write64(std::uint32_t a, std::uint64_t v) {
++void DcMemory::write64_slow(std::uint32_t a, std::uint64_t v) {
+     const Target t = resolve(a, 8, true);
+     if (t.kind == Target::kBytes) {
+         const std::uint32_t lo = static_cast<std::uint32_t>(v);
