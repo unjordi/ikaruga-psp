@@ -5,6 +5,7 @@
 #include <pspkernel.h>
 #include <psppower.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdarg>
 #include <cstdint>
@@ -118,6 +119,9 @@ void log_line(const char* fmt, ...) {
 //   texturas_kb=N     cap of the texture cache in KB (default 2560)
 //   recorte=0         ignore the polygons' user tile clip (modes 2 and 3)
 //   niebla=0          draw without fog
+//   memoria=1         memory counter (docs/memoria-psp.md): every memoria_cada guest frames and at
+//                     the capture, a "mem:" line with the free memory and the heap peaks
+//   memoria_cada=N    frames between "mem:" lines (default 60)
 struct Config {
     std::uint32_t rtc_seed = 1;
     std::uint32_t hash_every = kLogEvery;
@@ -138,6 +142,8 @@ struct Config {
     std::uint32_t texture_kb = 2560;
     bool clip = true;
     bool fog = true;
+    bool memory = false;
+    std::uint32_t memory_every = kLogEvery;
 };
 
 std::string trimmed(const std::string& s) {
@@ -206,9 +212,15 @@ Config read_config() {
             cfg.clip = value != "0";
         else if (key == "niebla")
             cfg.fog = value != "0";
+        else if (key == "memoria")
+            cfg.memory = value != "0";
+        else if (key == "memoria_cada")
+            cfg.memory_every = static_cast<std::uint32_t>(number());
     }
     if (cfg.hash_every == 0)
         cfg.hash_every = kLogEvery;
+    if (cfg.memory_every == 0)
+        cfg.memory_every = kLogEvery;
     return cfg;
 }
 
@@ -231,6 +243,37 @@ void log_memory(const char* tag) {
     log_line("%s: heap arena %d in_use %d free_in_arena %d largest_block_kb %zu "
         "kernel_free_kb %u", tag, mi.arena, mi.uordblks, mi.fordblks, lo / 1024,
         static_cast<unsigned>(sceKernelTotalFreeMemSize() / 1024));
+}
+
+// Memory counter (memoria=1): highs and lows seen at every sample. newlib's heap only asks the
+// system for more through sbrk, so `arena` is what it has requested and `in_use` what the program
+// holds inside it; `usmblks` is newlib's own high-water mark of the arena.
+struct MemoryPeaks {
+    std::size_t arena = 0, in_use = 0, usmblks = 0;
+    std::uint32_t min_total_free = ~0u, min_max_free = ~0u;
+} g_peaks;
+
+void sample_memory() {
+    const struct mallinfo mi = mallinfo();
+    g_peaks.arena = std::max<std::size_t>(g_peaks.arena, mi.arena);
+    g_peaks.in_use = std::max<std::size_t>(g_peaks.in_use, mi.uordblks);
+    g_peaks.usmblks = std::max<std::size_t>(g_peaks.usmblks, mi.usmblks);
+    g_peaks.min_total_free = std::min<std::uint32_t>(g_peaks.min_total_free,
+        sceKernelTotalFreeMemSize());
+    g_peaks.min_max_free = std::min<std::uint32_t>(g_peaks.min_max_free,
+        sceKernelMaxFreeMemSize());
+}
+
+void log_memory_counter(const char* tag, std::uint64_t frame) {
+    sample_memory();
+    const struct mallinfo mi = mallinfo();
+    log_line("mem: %s frame %" PRIu64 " sys_total_free_kb %u sys_max_free_kb %u arena %zu in_use %zu "
+        "free_in_arena %zu usmblks %zu | peak arena %zu in_use %zu usmblks %zu min_sys_total_free_kb %u "
+        "min_sys_max_free_kb %u", tag, frame,
+        static_cast<unsigned>(sceKernelTotalFreeMemSize() / 1024),
+        static_cast<unsigned>(sceKernelMaxFreeMemSize() / 1024), std::size_t(mi.arena),
+        std::size_t(mi.uordblks), std::size_t(mi.fordblks), std::size_t(mi.usmblks), g_peaks.arena, g_peaks.in_use, g_peaks.usmblks, g_peaks.min_total_free / 1024,
+        g_peaks.min_max_free / 1024);
 }
 
 // The AICA clock advances one second every 200M guest cycles, scheduled as the PC launcher does.
@@ -360,6 +403,8 @@ int main(int argc, char** argv) {
     log_line("ikaruga-psp: log every %" PRIu64 " guest frames", kLogEvery);
     log_fpu_probe();
     const Config cfg = read_config();
+    if (cfg.memory)
+        log_memory_counter("start", 0);
     host::video_set_drawing(cfg.draw);
     host::video_set_depth_test(cfg.depth);
     host::video_set_clip(cfg.clip);
@@ -548,6 +593,8 @@ int main(int argc, char** argv) {
         host::video_set_trace(nullptr);
         draw_us += host::clock_us() - r0;
         ++renders;
+        if (cfg.memory)
+            sample_memory();
         const std::uint64_t f = sys.spg.frames();
         if (cfg.capture_at && f >= cfg.capture_at) {
             log_line("render: frame %" PRIu64 " render %" PRIu64 " words %zu polygons %zu "
@@ -591,6 +638,8 @@ int main(int argc, char** argv) {
             }
             log_perf(f);
             host::texcache_describe(&log_line);
+            if (cfg.memory)
+                log_memory_counter("capture", f);
             log_memory("memory");
             if (cfg.dump_ta) {
                 char ta[64];
@@ -619,6 +668,11 @@ int main(int argc, char** argv) {
         maple.vblank();
         test_hooks(f, cfg.test_exit_at, cfg.test_suspend_at, *disc);
         check_exit();
+        if (cfg.memory) {
+            sample_memory();
+            if (f % cfg.memory_every == 0)
+                log_memory_counter("tick", f);
+        }
         if (f % kLogEvery == 0) {
             report("tick");
             log_perf(f);
