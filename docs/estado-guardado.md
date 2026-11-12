@@ -1,4 +1,4 @@
-# Estado guardado (pasos 23–25)
+# Estado guardado
 
 Para qué: una prueba que mira el cuadro 2600 ya no tiene que emular desde el arranque. Se vuelca el
 estado completo de la máquina en el cuadro N y el EBOOT arranca desde ahí,
@@ -14,7 +14,7 @@ con el mismo resultado que una corrida desde el arranque.
 | `cargar_estado=archivo` | arranca desde ese archivo (ruta relativa a la carpeta del EBOOT) en vez de desde el arranque. |
 
 Con PPSSPP: `PROBAR_SACAR="estado-600.bin"` trae el volcado; `PROBAR_METER="ruta/estado-600.bin"`
-(nuevo en `scripts/probar-ikaruga-ppsspp.sh`) lo copia a la carpeta del EBOOT antes de correr.
+(de `scripts/probar-ikaruga-ppsspp.sh`) lo copia a la carpeta del EBOOT antes de correr.
 
 ```sh
 P="start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200"
@@ -33,14 +33,14 @@ claves de depuración del host (`hash_every`, `capturar_en`, `dibujar_desde`…)
 
 ## Punto de volcado
 
-`System::before_idle` (nuevo) se llama al principio de `System::on_idle`, es decir en cada
+`System::before_idle` se llama al principio de `System::on_idle`, es decir en cada
 `idle_poll` del código generado. El host vuelca cuando `pc == 0x0C0370BA` (cabeza de la espera de
-`kmWaitVBlank`, `docs/investigacion-pendientes.md` §23), `spg.frames() >= N`, `nesting == 0` y
+`kmWaitVBlank`, `docs/mediciones/investigacion-pendientes.md` §23), `spg.frames() >= N`, `nesting == 0` y
 `c.cycles < c.next_event`. La última condición: si ya hay una interrupción vencida, la
 función reanudada (`kmWaitVBlank__resume`) la atendería en su sondeo de entrada, antes que el
 sondeo donde la tomó la corrida original; esa vuelta se salta y se vuelca en la siguiente.
 
-Al cargar, `run_guest_from(c, m, 0x0C0370BA, stop_pr)` (nuevo en `abi_bare.cpp`) entra al bucle de
+Al cargar, `run_guest_from(c, m, 0x0C0370BA, stop_pr)` (`abi_bare.cpp`) entra al bucle de
 `run_guest_impl` ya reanudado: `resume_at` llama a `kmWaitVBlank__resume` con ese PC y, cada vez
 que una función reanudada vuelve, sigue en `c.pr`, que cada función restaura de la pila del guest
 (en la RAM volcada). `stop_pr` es el `PR` con que arranca `run_guest` normal (el de `setup_boot`).
@@ -56,7 +56,7 @@ coinciden. Código: `runtime/include/dream/runtime/state.h`, `runtime/src/state.
 | sección | qué lleva |
 |---|---|
 | `HOST` | PC de reanudación, cuadro |
-| `SYS_` | `Ctx` completo, el turno anterior del idle-skip (antes `static` en `on_idle`, ahora miembro `idle_prev`), contadores de idle/interrupciones/traps/accesos a dispositivo |
+| `SYS_` | `Ctx` completo, el turno anterior del idle-skip (`idle_prev`), contadores de idle/interrupciones/traps/accesos a dispositivo |
 | `SCHD` | reloj `now_` y, por evento en orden de registro, **nombre** y plazo. Los callbacks no se guardan: el host registra los mismos dispositivos en el mismo orden y `load` comprueba cada nombre |
 | `INTC` `TMU_` `HINT` `SPG_` | INTC SH-4, TMU, INTC de Holly, SPG (cuadros, línea, vsync) |
 | `MEM_` `UTLB` | RAM 16 MB, VRAM 8 MB, ARAM 2 MB, flash 128 KB, OCRAM 8 KB, épocas de VRAM (parche 0007), `write_hash` y su contador, registros CCN/SQ/QACR, UTLB. La ROM de arranque no (el BIOS HLE no la usa) |
@@ -71,42 +71,29 @@ coinciden. Código: `runtime/include/dream/runtime/state.h`, `runtime/src/state.
 No se guardan: contadores de diagnóstico del host, caché de texturas de la PSP (se rehace al
 dibujar; las épocas de VRAM sí van), estado del vídeo del host.
 
-## Qué se probó
+## Cómo se comprueba
 
-Pulsaciones del capítulo 1 (las de `test-psp-igual-pc-double.sh`), `rtc_seed 1`.
+Con las pulsaciones del capítulo 1 (las de `test-psp-igual-pc-double.sh`) y `rtc_seed 1`, en PPSSPP sin
+limitador (`DISCO-real.ISO`), el criterio es que la corrida desde el estado dé lo mismo que la corrida
+desde el arranque:
 
-**PSP en PPSSPP sin limitador** (`DISCO-real.ISO`):
+- las líneas `hash` de los cuadros posteriores al volcado son idénticas (`hash_every=1`);
+- `captura-2600.raw` es idéntica (`cmp`);
+- volcar no altera la corrida: 0→2600 con y sin `guardar_estado_en` dan los mismos `hash`.
 
-| build | corrida | pared | resultado |
-|---|---|---|---|
-| `double` | 0→2600 volcando en 600 | 74 s | volcado en 0,30 s |
-| `double` | carga 600 → 2600 | 68 s | `hash` 601…2600 iguales (2 000 líneas) y `captura-2600.raw` idéntica (`cmp`) |
-| `double` | carga del volcado con `aica.sample` +1 000 ciclos | — | contraprueba: 100 de 100 cuadros distintos desde 601 |
-| `double` | carga 2590 → 2600 | 8 s | `hash` 2591…2600 iguales, captura idéntica |
-| `float` (el que se entrega) | 0→2600 volcando en 2590 | 39 s | — |
-| `float` | carga 2590 → 2600 | 8 s | `hash` 2591…2600 iguales, captura idéntica |
+Cubierto en los builds `double` (volcado en 600, carga 600→2600) y `float` (volcado en 2590, carga
+2590→2600, ≈8 s de pared). La contraprueba es cargar un volcado con el plazo de `aica.sample`
+movido +1 000 ciclos: los `hash` difieren desde el primer cuadro cargado. Cargar cuesta ≈2,9 s dentro
+del EBOOT (leer 27,6 MB por el sistema de archivos de PPSSPP); volcar, 0,30 s. El arranque normal sin
+estado sigue igual al PC (`test-psp-igual-pc-double.sh`).
 
-Cargar el estado cuesta ≈2,9 s dentro del EBOOT (leer 27,6 MB por el sistema de archivos de
-PPSSPP); el resto de los 8 s es arrancar PPSSPP y el EBOOT. La corrida `double` es más lenta que
-la `float` porque FIPR/FTRV van en `double` por software.
+## Qué no cubre
 
-Repetido en la revisión, con los EBOOT recompilados desde esta rama: CONFIRMADO cada fila de la
-tabla (`double` 600→2600: 2 000 `hash` iguales y captura idéntica; contraprueba: 2 000 de 2 000
-distintos, la captura del 2600 no cambia porque el plazo del AICA no toca el vídeo; `float` 2590→2600:
-10 iguales y captura idéntica). Además, `float` 0→2600 con `guardar_estado_en=2590` y sin él dan los
-mismos 2 600 `hash`: volcar no altera la corrida.
-
-**Arranque normal sin estado**: `test-psp-igual-pc-double.sh` con el EBOOT `double` de esta rama → igual en cada cuadro 1…2600.
-
-## Qué NO verifiqué y dónde está mi punto ciego
-
-- Solo un punto de volcado en dos cuadros (600 en el título/menú, 2590 en el capítulo 1). No probé
+- Solo un punto de volcado en dos cuadros (600 en el título/menú, 2590 en el capítulo 1). No se probó
   volcar con un render en vuelo distinto, con un comando de GD-ROM en curso ni con DMA de G2
-  pendiente; los campos están en el estado pero ninguna prueba los ejerce con valores no triviales
-  que sepa.
+  pendiente; los campos están en el estado pero ninguna prueba los ejerce con valores no triviales.
 - El orden de registro de los eventos del scheduler se comprueba por nombre; si un host registra
   un evento más, la carga falla en vez de adaptarse.
 - La VMU: el estado restaura la imagen en memoria, no el archivo. Si entre el volcado y la carga
   cambia `VMU.BIN`, la siguiente escritura del juego mezcla los dos.
-- No medí el estado en hardware real ni con limitador; no comparé contra Flycast (no hacía falta:
-  la captura es idéntica bit a bit a la de la corrida desde el arranque).
+- No se midió el estado en hardware real ni con limitador.

@@ -1,4 +1,4 @@
-# Controles en la PSP (fila T5)
+# Controles en la PSP
 
 `psp/stubs/input.cpp` lee el control de la PSP en cada vblank del guest con
 `sceCtrlPeekBufferPositive` (inicializado una vez con `sceCtrlSetSamplingCycle(0)` y
@@ -68,28 +68,28 @@ boton_circulo=a
 boton_cuadrado=r
 ```
 
-## Cómo se probó (PPSSPP 1.20.4 bajo Xvfb, disco real, `rtc_seed=1`)
+## Cómo se prueba
 
-La tecla de START por defecto en PPSSPP 1.20.4 es la barra espaciadora:
-`Core/KeyMapDefaults.cpp:28` `{CTRL_START, NKCODE_SPACE}` en `defaultQwertyKeyboardKeyMap`
-(tag `v1.20.4` de hrydgard/ppsspp). El `ppsspp.ini` privado de la corrida no la cambia.
+`scripts/probar-ikaruga-ppsspp.sh` acepta `PROBAR_TECLA=space@700`: cuando `ikaruga.log` muestra un
+`hash` en el cuadro ≥ 700 (con `hash_every=10`), mueve el puntero sobre la ventana de PPSSPP, le da el
+foco y mantiene `space` con `xdotool keydown` hasta el cuadro ≥ 720. Lo hecho queda en
+`<salida>.tecla.log`. La tecla de START por defecto en PPSSPP 1.20.4 es la barra espaciadora
+(`Core/KeyMapDefaults.cpp`, `{CTRL_START, NKCODE_SPACE}`). Xvfb no tiene gestor de ventanas:
+`xdotool windowfocus --sync` falla hasta buscar la ventana con `--onlyvisible`.
 
-`scripts/probar-ikaruga-ppsspp.sh` acepta `PROBAR_TECLA=space@700`: cuando `ikaruga.log` muestra
-un `hash` en el cuadro ≥ 700 (con `hash_every=10`), mueve el puntero sobre la ventana de PPSSPP,
-le da el foco y mantiene `space` con `xdotool keydown` hasta el cuadro ≥ 720. Lo hecho queda en
-`<salida>.tecla.log`. Xvfb no tiene gestor de ventanas; `xdotool windowfocus --sync` falló
-(«xdo_focus_window reported an error») hasta buscar la ventana por `--onlyvisible` (ventana
-«Ikaruga (dream-recomp, headless)»).
+Con `capturar_en=1243`, sin `pulsar=`:
 
-| Corrida (`capturar_en=1243`, sin `pulsar=`) | Resultado |
+| corrida | resultado |
 |---|---|
-| Tecla espacio en el cuadro 700 | **título** (kanji 斑鳩, «PRESS START BUTTON», fondo de color; media RGB 90/75/64) |
-| `pulsar=start@700`, sin tecla (referencia guionada) | título; PSNR 35,1 dB contra la de la tecla |
-| Tecla espacio en el cuadro 700 con `control=0` (contraprueba) | **pantalla de arranque negra** (media RGB 1,3) |
+| tecla espacio en el cuadro 700 | pantalla de título (media RGB 90/75/64) |
+| `pulsar=start@700`, sin tecla | título; 35,1 dB contra la de la tecla |
+| tecla espacio en el 700 con `control=0` (contraprueba) | pantalla de arranque negra (media RGB 1,3) |
 
-El `write_hash` de la corrida con tecla y la guionada coincide en 700 y difiere desde 720: la tecla
-se mantiene ~20 cuadros y la pulsación guionada 8, así que el juego no recibe la misma entrada;
-la comparación vale por la captura del título. Además, sin pulsaciones el arranque sigue igual a
-PC hasta el cuadro 240 (`HASTA=240 scripts/test-psp-igual-pc.sh`, 4 cuadros iguales).
+La tecla se mantiene ≈20 cuadros y la pulsación guionada 8, así que el `write_hash` coincide en el 700 y
+difiere desde el 720: la comparación vale por la captura del título. Sin pulsaciones el arranque sigue
+igual al PC hasta el cuadro 240 (`HASTA=240 scripts/test-psp-igual-pc.sh`).
 
-Las capturas quedan en `build/psp/evidencia/t5-{tecla,guion,control0}/` (gitignored).
+## Qué no cubre
+
+R y A+B soltando la energía en juego, `tate=2` y el umbral del stick no se han probado; en el menú de
+modos sí se probaron la cruceta real, el stick y la izquierda con `tate=1`.
