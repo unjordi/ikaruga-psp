@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
         double smax = zmin;  // scene max: below the 1/w >= 1 planes
         for (float z : zs) if (z < 1.0f) smax = std::max(smax, (double)z);
         const auto lin = [&](double z) { return (long)std::floor(1 + (z - zmin) * 65534.0 / (zmax - zmin)); };
-        const auto sin = [&](double z) { return z >= 1.0 ? 65535L : (long)std::floor(1 + (z - zmin) * 65533.0 / (smax - zmin)); };
+        const auto sin = [&](double z) { return z >= 1.0 ? 65535L : (long)std::floor(1 + (z - zmin) * 64999.0 / (smax - zmin)); };
         const double l0 = std::log2(zmin), l1 = std::log2(zmax);
         const auto lg = [&](double z) { return (long)std::floor(1 + (std::log2(z) - l0) * 65534.0 / (l1 - l0)); };
         const char* names[3] = {"lineal", "sin_hud_fondo", "log2"};
@@ -171,7 +171,14 @@ int main(int argc, char** argv) {
                     ++pairs;
                     const long qf = m == 0 ? lin(f.lo) : m == 1 ? sin(f.lo) : lg(f.lo);
                     const long qk = m == 0 ? lin(k.hi) : m == 1 ? sin(k.hi) : lg(k.hi);
-                    if (qf <= qk) { ++same; if (a.l != 2 && b.l != 2) ++same_op; }
+                    if (qf <= qk) {
+                        ++same;
+                        if (a.l != 2 && b.l != 2) ++same_op;
+                        if (m == 1 && std::getenv("ANALIZAR_TA_ESCALONES_PARES"))
+                            std::printf("par l%u/l%u gap %g (%.3g escalones) front %.0f,%.0f-%.0f,%.0f back %.0f,%.0f-%.0f,%.0f z %g/%g\n",
+                                f.l, k.l, f.lo - k.hi, (f.lo - k.hi) * 64999.0 / (smax - zmin),
+                                f.x0, f.y0, f.x1, f.y1, k.x0, k.y0, k.x1, k.y1, f.lo, k.hi);
+                    }
                 }
             std::printf("escalones.%s pares_ordenados_que_se_tapan %u mismo_escalon %u (opacos %u)\n",
                         names[m], pairs, same, same_op);
