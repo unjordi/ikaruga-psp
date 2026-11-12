@@ -41,7 +41,9 @@ printf 'rtc_semilla = %s\n' "$SEED" >"$OUT/ikaruga.cfg"
 # emulation needs instead of the whole $SEGUNDOS (an upper bound now).
 printf 'max_cuadros=%s\n' "$((HASTA + 1))" >>"$OUT/ikaruga.cfg"
 [[ -n "${PROBAR_CFG_EXTRA:-}" ]] && grep -v '^rtc_semilla' "$PROBAR_CFG_EXTRA" >>"$OUT/ikaruga.cfg"
-PROBAR_SIN_LIMITE="${PROBAR_SIN_LIMITE:-1}" PROBAR_CFG="$OUT/ikaruga.cfg" \
+# No BIOS font: the PC binary has none (its boot ROM reads zero), and with it the guest writes the
+# glyphs of the menu legend into VRAM, so the write hash would part from PC at frame ~205.
+PROBAR_FUENTE="${PROBAR_FUENTE:--}" PROBAR_SIN_LIMITE="${PROBAR_SIN_LIMITE:-1}" PROBAR_CFG="$OUT/ikaruga.cfg" \
   "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$EBOOT" "$JUEGO" \
   "$SEGUNDOS" "$OUT/psp.log" >/dev/null 2>"$OUT/probar.err" || true
 [[ -s "$OUT/psp.log" ]] || { echo "FAIL: the EBOOT wrote no log" >&2; exit 1; }
