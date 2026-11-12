@@ -24,8 +24,8 @@ ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc
   muestra «データファイルの作成に成功しました» y sigue. Sin BIOS: Flycast usa reios, región Japón.
 - Cada cuadro grabado se escala a 480×272 con x·480/640, y·272/480, pantalla completa, filtro de
   caja (PIL `Image.BOX`).
-- El disco se copia a `build/flycast/Ikaruga.chd` (el original en `/tank/JuegosYRoms/dreamcast/` es
-  de solo lectura; `FLYCAST_CHD` apunta a otro).
+- El disco se copia a `build/flycast/Ikaruga.chd` (el original puede ser de solo lectura; `FLYCAST_CHD`
+  apunta a otro).
 
 ## La serie de referencia
 
@@ -50,8 +50,8 @@ los mosaicos de la serie y con margen:
 Las escenas del menú del título, la pausa y un punto avanzado del capítulo 1 no tienen ventana
 fija: ninguna prueba las usa.
 
-Se regrabó la serie por segunda vez de forma independiente y las tres escenas cayeron en los
-mismos índices (f178, f292, f392); las cifras de cada prueba se movieron ≤ 0,15 dB.
+Dos grabaciones independientes de la serie dieron las tres escenas en los mismos índices (f178, f292,
+f392) y las cifras de cada prueba se movieron ≤ 0,15 dB.
 
 **Escena no encontrada.** `comparar-flycast.sh --captura` sale con 3 y lo dice cuando la ventana
 cae fuera de la serie, o cuando la mejor imagen es un borde de la ventana y sigue mejorando hacia
@@ -73,9 +73,9 @@ elección favorece a la PSP (elige su mejor momento dentro de la ventana). Modo 
 (`comparar-flycast.sh <serie-flycast/p480> <serie-psp> --escena NOMBRE:F0-F1:P0-P1`): lo mismo, pero
 la PSP también es una serie (`PROBAR_GRABAR=DIR` en `probar-ikaruga-ppsspp.sh`).
 
-## Umbrales y lo medido (build `float`, develop + este paso)
+## Umbrales y lo medido (build `float`)
 
-Umbrales fijados antes de medir; no se movieron.
+Umbrales fijados antes de medir.
 
 | prueba | escena (ventana → imagen) | umbral | medido | contraprueba |
 |---|---|---|---|---|
@@ -93,49 +93,31 @@ misma pulsación cae en instantes distintos del capítulo 1 y la escena que la P
 umbrales no se tocaron; se eligió el punto del capítulo 1 que la serie contiene. El 2400 queda a
 0,03 dB del umbral de 20 dB: la prueba de texturas del juego es sensible al cuadro elegido.
 
-Las columnas laterales de la PSP son hoy negras con el HUD, como en Flycast, en 2200, 2400 y 2600
-(SSIM izquierda 0,93, derecha 0,995 en los tres): el escenario bajo las columnas y las franjas
-negras de la primera comparación ya no se ven. Sigue visible a ojo (capturas de 2200-2600): «CHAIN
+Las columnas laterales de la PSP son negras con el HUD, como en Flycast, en 2200, 2400 y 2600
+(SSIM izquierda 0,93, derecha 0,995 en los tres). A ojo (capturas de 2200-2600) «CHAIN
 STATUS» sale como una línea borrosa y la columna de cuadros del chain como una fila de puntos, en
-vez de texto y cuadros huecos; no lo medí por separado.
+vez de texto y cuadros huecos; no se midió por separado.
 
 ### Diferencia que queda
 
 El centro del capítulo 1 en 2350: 20,28 dB / SSIM 0,682 (pantalla completa 21,80 / 0,798). Parte es
-desfase entre las dos series y parte puede ser defecto de la PSP; no las separé. Los pasos 39-40 del
+desfase entre las dos series y parte puede ser defecto de la PSP; no están separadas. Los pasos 38 a 45 del
 plan lo atacan.
 
-## Entradas contra `docs/primer-uso.md` (medido el 2026-11-10)
+## Qué no cubre
 
-Cada pieza de las tablas «Qué copiar a la memory stick» y «Hashes de la corrida» de
-`docs/primer-uso.md`:
-
-| pieza | primer-uso.md | medido | |
-|---|---|---|---|
-| CHD de entrada | 26 841 157 B, sha256 `a322d7ee…a9a66` | copia en `build/flycast/Ikaruga.chd` y original en /tank: 26 841 157 B, `a322d7ee…a9a66` | igual |
-| `1ST_READ.BIN` | 1 027 892 B, sha1 `f2524eb5…764c6f9` | 1 027 892 B, sha1 `f2524eb571da1b0fb4a9b2cdab448ce24764c6f9`, sha256 `b3c9a2b9…855de` | igual |
-| `gen/` con idle-skip | 20 archivos, 48 MB, `924f8b67…884da` | `dr-idle/build-rel/games/ikaruga/gen`: 20 archivos, 48M, `924f8b67d9778173…aec884da` | igual |
-| `ikaruga_boot` (PC) | 14 430 776 B; text 13 152 407, data 227 080, bss 590 520 | `dr-idle/build-rel/games/ikaruga/ikaruga_boot`: lo mismo | igual; solo se usó para el arranque igual a PC |
-| `EBOOT.PBP` (mix) | 13 885 660 B, `d9840d5c…` | 13 887 004 B, `d3f5e8ba2b81e7f6…53b6304a` | distinto: develop cambió desde el 2026-11-06 (era esperable); es el EBOOT de esta fila |
-| `DISCO.ISO` | 504 150 sectores, 1 032 499 200 B, `c3173ebd…110db7` | `ikaruga-psp-wt/f8/build/DISCO-real.ISO`: lo mismo | igual |
-| `VMU.BIN`, `ikaruga.log`, `ikaruga.cfg` | el EBOOT crea `VMU.BIN` (128 KiB) e `ikaruga.log`; `ikaruga.cfg` opcional | `ikaruga.cfg` usado (pulsaciones, `max_cuadros=2700`, `rtc_seed=1`); `ikaruga.log` escrito y copiado a `build/psp-serie/`; `VMU.BIN` no lo saqué de la memory stick temporal (sin `PROBAR_VMU_OUT`) | VMU no verificado |
-| total memory stick | 1 047 412 752 B | 1 047 414 096 B | +1 344 B, la diferencia del EBOOT |
-| `test-psp-igual-pc.sh` | PASS 10/10 (60…600) | corrido con `HASTA=240`: PASS 4/4, cuadro 60 `b003d78fd04385d4`, 240 `d7e9cca457022d77` | el cuadro 60 coincide con el del doc; 300…600 no los corrí (la regla pide hasta 240) |
-
-## Qué NO verifiqué y dónde está mi punto ciego
-
-- Las ventanas las puse a ojo; el mejor-SSIM dentro de ellas es objetivo, las ventanas no. El
+- Las ventanas están fijadas a ojo; el mejor-SSIM dentro de ellas es objetivo, las ventanas no. El
   cuadro 2350 se eligió viendo el barrido de arriba (a la vista de los números, no antes).
 - Flycast corre en tiempo real y las pulsaciones van por reloj de pared: no es cuadro exacto, y no
-  medí cuántos cuadros de juego cae cada pulsación respecto a la PSP. Dos grabaciones dieron los
-  mismos índices; no medí más de dos.
+  se midió en cuántos cuadros de juego cae cada pulsación respecto a la PSP. Dos grabaciones dieron los
+  mismos índices; no hay más de dos.
 - La serie son 10 capturas por segundo: un instante corto puede caer entre dos.
-- Flycast sin BIOS (reios) y región Japón; no probé la rama `md5fix` ni un BIOS real. Un error de
+- Flycast sin BIOS (reios) y región Japón; no se probó la rama `md5fix` ni un BIOS real. Un error de
   reios en la parte de juego no lo distinguiría de un error de la PSP.
 - La IoU de geometría (0,98) es una medida gruesa: el campo ocupa casi la misma área en los dos.
 - La detección de «escena no encontrada» solo cubre una ventana cortada por un borde o fuera de la
   serie; una ventana que contiene otra escena parecida pasa como cualquier comparación y la
   separan los umbrales.
 - El archivo de VMU: Flycast arranca sin tarjeta y crea una; la PSP usa la suya en memoria. No
-  verifiqué que no cambie algo visible (no lo vi).
+  se verificó que no cambie algo visible.
 - Todo es PPSSPP contra Flycast: ninguna PSP real.

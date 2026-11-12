@@ -46,8 +46,8 @@ dos PPSSPP a la vez rompen la regla de un solo PPSSPP y, con `xvfb-run -a`, comp
 
 ## Las pruebas
 
-Todas necesitan `PROBAR_DISCO` (el volcado del área HD real, `docs/primer-uso.md`); las que comparan
-contra el PC además `DREAM_RECOMP`.
+Todas necesitan `PROBAR_DISCO` (el volcado del área HD real, `docs/primer-uso.md`); las que usan el
+lanzador de PC (`igual-pc`) además `DREAM_RECOMP`.
 
 ```sh
 export PROBAR_DISCO=<DISCO-real.ISO> DREAM_RECOMP=<dream-recomp>

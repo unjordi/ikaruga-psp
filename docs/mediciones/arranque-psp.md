@@ -71,7 +71,7 @@ El PC del guest coincide en los cuadros 60 y 180 y los ciclos difieren < 0,07 %:
 mismo arranque. En el cuadro 600 los PCs difieren; el PC se toma en instantes distintos (en la PSP
 en el callback de VBlank, en PC al parar tras el cuadro) y ahí el juego está en su bucle de cuadro,
 así que no lo cuento como divergencia, pero no lo verifiqué. En PC el cuadro 600 es el título
-(docs/medicion-pc.md), así que la PSP llega hasta el título; sin video no lo vi.
+(docs/mediciones/medicion-pc.md), así que la PSP llega hasta el título; sin video no lo vi.
 
 ### Negativa: sin 1ST_READ.BIN
 
@@ -167,7 +167,7 @@ scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $G 120 build/psp/ev
 EBOOTs: `EBOOT-Os.PBP` sha256 `488dde75fc53b05f6df19f641df75ea1047d18a9aee7235b7c6d1aa67799b3ec`
 (imagen 13,66 MB + guest 28,1 MB = 41,76 MB), `EBOOT.PBP` (`mix`) sha256
 `c11e79c10638ad43cadaf6a97c5e7353887217ef363c7ab4899a2b6f9a39e048` (13,75 MB + 28,1 MB = 41,85 MB de
-~52 MB; `docs/tamano-psp.md` §5). Idle-skip activo en las dos. Mismas advertencias que arriba
+~52 MB; `docs/mediciones/tamano-psp.md` §5). Idle-skip activo en las dos. Mismas advertencias que arriba
 (PPSSPP 1.20.4 en el Ryzen 9 9950X, `host_s` = reloj PSP emulado); una corrida de 120 s por variante.
 
 | | todo `-Os` | `mix` | `mix` / `-Os` |

@@ -54,7 +54,7 @@ en el 2600: `fipr/f 4526`, `ftrv/f 5927`, `fmac/f 10893`, `sched/f 1598`, `tex_h
   `patches/dream-recomp-pc/0002-…` en el PC): FMAC `p = fr0*frm; p + frn`; FIPR
   `((a0*b0 + a1*b1) + a2*b2) + a3*b3`; FTRV igual por fila, cada producto y suma redondeado a
   `float`. Sin FMA implícita (`-ffp-contract=off -frounding-math` en los dos lados). `-DDREAM_FPU_DOUBLE=1`
-  deja el `double` de antes para comparar bit a bit con el PC (`docs/correctitud-psp.md`). El `gen/` no
+  deja el `double` para comparar bit a bit con el PC (`docs/correctitud-psp.md`). El `gen/` no
   cambia (solo se toca `runtime/`), pero `ops.h` va en línea en el C++ generado: tras cambiar un parche
   que lo toque, `scripts/build-psp-ikaruga.sh --limpio`. La VFPU no se usa. Es la mayor ganancia
   medida: 0,0518x → 0,0869x en el capítulo 1.
@@ -87,5 +87,5 @@ en el 2600: `fipr/f 4526`, `ftrv/f 5927`, `fmac/f 10893`, `sched/f 1598`, `tex_h
 - Hardware real: el reloj emulado no reproduce el costo real de la caché ni de la memoria de la PSP.
 - El costo propio de los contadores `perf` no se midió aparte (incrementos de un global).
 - `DREAM_NO_BIOS_IMAGE` supone que nada lee la ROM de arranque con la BIOS HLE.
-- El PSNR del capítulo 1 contra Flycast se mide en `docs/referencia-flycast.md`; que la caché ya no
+- El PSNR del capítulo 1 contra Flycast se mide en `docs/referencia-flycast.md`; que la caché no
   rechace no prueba por sí solo que cada textura se vea bien.

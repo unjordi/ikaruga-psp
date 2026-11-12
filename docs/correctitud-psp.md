@@ -64,7 +64,7 @@ El build `float` compila `Freg = float`: sin cambio de comportamiento. La sonda 
 
 `DREAM_FPU_DOUBLE=1 scripts/build-psp-ikaruga.sh $DREAM_RECOMP/build-rel/games/ikaruga/gen --variantes=mix`
 construye el EBOOT `double`; el PC `double` se compila con
-`-DCMAKE_CXX_FLAGS=-DDREAM_FPU_DOUBLE=1` (`docs/reproducir-pc.md`, §5.3).
+`-DCMAKE_CXX_FLAGS=-DDREAM_FPU_DOUBLE=1` (`docs/reproducir-pc.md`, §5.1).
 
 ```sh
 scripts/test-psp-igual-pc-double.sh $E $J                  # write_hash igual en cada cuadro 1…2600

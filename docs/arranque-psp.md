@@ -39,8 +39,8 @@ scripts/test-psp-arranque.sh build/psp/ikaruga/EBOOT.PBP $J 60
   `stop`.
 
 Falla si falta el error, si no hay cuadros, si el `pc` no cambia o si el guest se detuvo. Con el
-mismo arranque, `scripts/test-psp-igual-pc.sh` compara contra el PC recompilado el hash de las
-escrituras del guest (`docs/correctitud-psp.md`).
+mismo arranque, `scripts/test-psp-igual-pc.sh` compara el hash de las escrituras del guest con el del
+PC recompilado (`docs/correctitud-psp.md`).
 
 ## Qué no cubre
 

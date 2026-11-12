@@ -7,7 +7,7 @@ ejecutar la espera.
 Piezas:
 
 - Traductor y runtime del PC: `patches/dream-recomp-pc/0001-idle-skip-for-declared-wait-loops.patch`
-  (sobre dream-recomp `51ca276`; `docs/reproducir-pc.md`, §5.2).
+  (sobre dream-recomp `51ca276`; `docs/reproducir-pc.md`, §5.1).
 - Runtime de la PSP: `patches/dream-recomp/0004-idle-skip-runtime.patch` y
   `patches/dream-recomp/0012-idle-skip-cheap.patch`, que `scripts/build-psp-ikaruga.sh` aplica sobre una
   copia del submódulo. El `gen/` que se compila tiene que salir del traductor parchado: el C++ con
@@ -24,7 +24,7 @@ timeout no sea 0. Lo cambia el handler de la interrupción de VBlank.
 ## Diseño
 
 - `games/<id>/<id>.toml` tiene una tabla `[idle]`: bloque cabeza del bucle → tipo de bucle. Ikaruga
-  declara `"0x0C0370BA" = "katana_wait_vblank"` (`docs/game-config.md`, «Idle loops», de dream-recomp
+  declara `"0x0C0370BA" = "katana_wait_vblank"` (sección «Idle loops» de `game-config.md` de dream-recomp
   parchado).
 - Traductor: `dream-translate game` mete esas direcciones en `EmitOptions::idle_blocks`; al inicio de
   cada una se emite `idle_poll(c, m, pc)`. Sin `[idle]` el C++ generado es el de siempre.
