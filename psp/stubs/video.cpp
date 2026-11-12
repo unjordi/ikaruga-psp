@@ -347,6 +347,29 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             ++stats.hairlines;
         }
     }
+    // Minified point-sampled sprites: the hardware draws at 640x480 and the image is seen box-
+    // filtered to 480x272; nearest sampling straight at 480x272 skips texel rows and columns (the
+    // HUD's "CHAIN STATUS", 32 texel rows in 18 pixels, loses its strokes). A point-sampled quad
+    // with more than 1.25 texels per screen pixel along either axis is sampled bilinearly.
+    if (g_hairlines) {
+        for (Item& item : items) {
+            const auto& p = *item.poly;
+            if (p.count != 4 || !item.tex || item.filter != GU_NEAREST)
+                continue;
+            const GeVertex* q = &g_vertices[p.first];
+            float worst = 0.0f;
+            for (int k : {1, 2}) {
+                const float dx = std::fabs(q[k].x - q[0].x), dy = std::fabs(q[k].y - q[0].y);
+                const float du = std::fabs(q[k].u - q[0].u), dv = std::fabs(q[k].v - q[0].v);
+                if (dx >= 1.0f) worst = std::max(worst, du / dx);
+                if (dy >= 1.0f) worst = std::max(worst, dv / dy);
+            }
+            if (worst > 1.25f) {
+                item.filter = GU_LINEAR;
+                ++stats.minified;
+            }
+        }
+    }
     sceKernelDcacheWritebackRange(g_vertices.data(),
                                   static_cast<unsigned>(g_vertices.size() * sizeof(GeVertex)));
     sceKernelDcacheWritebackRange(g_fog_vertices.data(),

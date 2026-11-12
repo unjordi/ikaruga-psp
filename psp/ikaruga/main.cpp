@@ -127,7 +127,8 @@ void log_line(const char* fmt, ...) {
 //   texturas_kb=N     cap of the texture cache in KB (default 2560)
 //   recorte=0         ignore the polygons' user tile clip (modes 2 and 3)
 //   niebla=0          draw without fog
-//   lineas=0          draw sub-pixel untextured quads (HUD hairlines) as they are, not widened
+//   lineas=0          draw sub-pixel untextured quads (HUD hairlines) as they are, not widened,
+//                     and minified point-sampled quads with nearest sampling
 //   memoria=1         memory counter (docs/memoria-psp.md): every memoria_cada guest frames and at
 //                     the capture, a "mem:" line with the free memory and the heap peaks
 //   memoria_cada=N    frames between "mem:" lines (default 60)
@@ -648,9 +649,9 @@ int main(int argc, char** argv) {
                 frame.lists[static_cast<unsigned>(dream::render::ListType::Translucent)].size(),
                 frame.vertices.size(), background ? 1 : 0, st.drawn, st.blended,
                 st.list_bytes, st.list_capacity, st.dropped);
-            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " hairlines %" PRIu32 " texture_renders %"
+            log_line("render: clip_inside %" PRIu32 " clip_outside %" PRIu32 " fogged %" PRIu32 " hairlines %" PRIu32 " minified %" PRIu32 " texture_renders %"
                 PRIu64 " last_texture_target 0x%06" PRIx32 " fb_w_ctrl 0x%08" PRIx32
-                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, st.hairlines, texture_renders,
+                " fb_w_sof1 0x%08" PRIx32, st.clip_inside, st.clip_outside, st.fogged, st.hairlines, st.minified, texture_renders,
                 texture_target, pvr.reg(0x048), pvr.reg(0x060));
             const host::TextureCacheStats ts = host::texcache_stats();
             log_line("textures: textured %" PRIu32 " entries %" PRIu32 " bytes %" PRIu32

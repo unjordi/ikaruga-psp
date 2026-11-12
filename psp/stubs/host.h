@@ -26,6 +26,7 @@ struct VideoStats {
     std::uint32_t clip_inside = 0, clip_outside = 0;  // strips drawn under user clip mode 2 / 3
     std::uint32_t fogged = 0;  // strips drawn with fog
     std::uint32_t hairlines = 0;  // sub-pixel untextured quads widened to one pixel
+    std::uint32_t minified = 0;   // point-sampled quads sampled bilinearly (minified)
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
