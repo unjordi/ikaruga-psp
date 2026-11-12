@@ -77,7 +77,7 @@ struct SoftRect {
 };
 SoftRect soft_rect(const SoftSpec& s);
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
-                              const SoftSpec& soft = SoftSpec());
+                              const SoftSpec* soft = nullptr);
 TextureCacheStats texcache_stats();
 // Frees every cached image (the GE must be done with them); the next render decodes again.
 void texcache_release_all();

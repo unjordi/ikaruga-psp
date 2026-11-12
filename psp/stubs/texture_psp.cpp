@@ -343,10 +343,22 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     }
     int w = static_cast<int>(e.info.width), h = static_cast<int>(e.info.height);
     const bool shrunk = e.soft.mode == SoftSpec::kRect && !mirror_u && !mirror_v;
+    int used_w = w, used_h = h;  // the part of the image the quad's texture coordinates span
     if (shrunk) {
         const SoftRect r = soft_rect(e.soft);
         soften_rect(rgba, w, h, e.soft);
-        w = r.w, h = r.h;
+        used_w = r.w, used_h = r.h;
+        // The GE wants power-of-two sides: the copy sits in the corner of an image as big as the
+        // texture itself (the cache's block sizes stay as before), the rest clear.
+        int pw = 8, ph = 8;
+        while (pw < e.info.width || pw < r.w) pw *= 2;
+        while (ph < e.info.height || ph < r.h) ph *= 2;
+        std::vector<std::uint32_t> padded(static_cast<std::size_t>(pw) * ph, 0u);
+        for (int y = 0; y < r.h; ++y)
+            std::memcpy(&padded[static_cast<std::size_t>(y) * pw], &rgba[static_cast<std::size_t>(y) * r.w],
+                        static_cast<std::size_t>(r.w) * 4);
+        rgba.swap(padded);
+        w = pw, h = ph;
     } else if (e.soft.mode == SoftSpec::kTent) {
         soften_tent(rgba, w, h);
     }
@@ -354,15 +366,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     int fx = 1, fy = 1;
     while (vw / fx > kMaxSide) fx *= 2;
     while (vh / fy > kMaxSide) fy *= 2;
-    int iw = vw / fx, ih = vh / fy;
-    if (shrunk) {  // the GE wants power-of-two sides: the image sits in the corner, the rest clear
-        int pw = 8, ph = 8;  // the texture's own size: the cache's block sizes stay as before
-        while (pw < e.info.width) pw *= 2;
-        while (ph < e.info.height) ph *= 2;
-        while (pw < w) pw *= 2;
-        while (ph < h) ph *= 2;
-        iw = pw, ih = ph;
-    }
+    const int iw = vw / fx, ih = vh / fy;
     const int format = entry_format(e);
     const int bpp = format == GU_PSM_8888 ? 4 : 2;
     const std::uint32_t bytes = static_cast<std::uint32_t>(iw * ih * bpp);
@@ -378,8 +382,7 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
         ++g_stats.over_budget, ++g_stats.render_over_budget;
         return false;
     }
-    const auto texel = [&](int x, int y) -> std::uint32_t {
-        if (shrunk && (x >= w || y >= h)) return 0;
+    const auto texel = [&](int x, int y) {
         const int sx = x < w ? x : 2 * w - 1 - x;
         const int sy = y < h ? y : 2 * h - 1 - y;
         return rgba[static_cast<std::size_t>(sy) * w + sx];
@@ -421,8 +424,8 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     e.tex.format = format;
     e.tex.width = iw;
     e.tex.height = ih;
-    e.tex.u_scale = static_cast<float>(w) / static_cast<float>(fx);
-    e.tex.v_scale = static_cast<float>(h) / static_cast<float>(fy);
+    e.tex.u_scale = static_cast<float>(used_w) / static_cast<float>(fx);
+    e.tex.v_scale = static_cast<float>(used_h) / static_cast<float>(fy);
     g_stats.bytes += bytes;
     g_stats.peak_bytes = std::max(g_stats.peak_bytes, g_stats.bytes);
     ++g_stats.decoded;
@@ -465,23 +468,24 @@ void texcache_begin_frame(const std::uint8_t* vram, std::size_t vram_size,
 }
 
 const GeTexture* texcache_get(std::uint32_t tcw, std::uint32_t tsp, bool mirror_u, bool mirror_v,
-                              const SoftSpec& soft) {
+                              const SoftSpec* soft) {
     if (!g_enabled || !g_vram)
         return nullptr;
     ++g_stats.requests;
-    std::uint32_t soft_hash = 0;  // 23 bits of the spec: a collision needs two copies of one texture
-    if (soft.mode != SoftSpec::kNone) {
-        soft_hash = hash_bytes(reinterpret_cast<const std::uint8_t*>(&soft.x0), 16, 2166136261u);
-        soft_hash = ((soft_hash ^ soft.mode) * 16777619u) & 0x7FFFFFu;
+    std::uint32_t soft_hash = 0;  // kRect: 23 bits of the spec; a collision needs two copies of one texture
+    if (soft && soft->mode == SoftSpec::kRect) {
+        soft_hash = hash_bytes(reinterpret_cast<const std::uint8_t*>(&soft->x0), 16, 2166136261u);
+        soft_hash = ((soft_hash ^ soft->mode) * 16777619u) & 0x7FFFFFu;
+    } else if (soft) {
+        soft_hash = 1;
     }
     const std::uint64_t key = (static_cast<std::uint64_t>(tcw) << 32) | (tsp & 0x3Fu) |
                               (mirror_u ? 0x40u : 0u) | (mirror_v ? 0x80u : 0u) |
-                              (static_cast<std::uint64_t>(soft_hash) << 8) |
-                              (soft.mode != SoftSpec::kNone ? 0x80000000u : 0u);
+                              (static_cast<std::uint64_t>(soft_hash) << 8) | (soft ? 0x80000000u : 0u);
     auto it = g_entries.find(key);
     if (it == g_entries.end()) {
         Entry e;
-        e.soft = soft;
+        if (soft) e.soft = *soft;
         if (!dream::render::describe_texture(tcw, tsp, 0, e.info)) {
             e.failed = true;
             ++g_stats.failed;
