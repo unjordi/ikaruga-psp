@@ -14,8 +14,11 @@
 # 3 when the scene is not found (window outside the series, or the best match is a window edge
 # that is still clearly improving, so the scene is cut by the window), 2 on usage errors.
 # --imagen FLYCAST.png: compare against that one 480x272 image instead of a window: the image of the
-# same guest frame, from scripts/capturar-flycast-cuadro.sh (p480/f<N>.png). No window search and no
-# edge check; the numbers are those of the pair.
+# same guest frame, from scripts/capturar-flycast-cuadro.sh (p480/f<N>.png). No edge check; with one
+# image the numbers are those of the pair. --imagen may be repeated: the image with the highest
+# whole-screen SSIM is taken (its file is printed as f0000i), which is how a scene is compared in
+# its aligned Flycast frame: the core's frame numbering is not the guest's vblank count, so the
+# aligned frame is DESFASE_* frames away (scripts/escenas-flycast.sh, docs/referencia-flycast.md).
 # --sin-borde skips the edge check (for negative controls, where the scene is not expected to be
 # in the window).
 # --serie DIR: default build/flycast/ref/p480; when missing it is recorded with
@@ -45,7 +48,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-salida="" escenas=() contras=() pos=() captura="" ventana="" serie="" imagen="" regiones=() reglas=() iou=0 sinborde=0
+salida="" escenas=() contras=() pos=() captura="" ventana="" serie="" imagenes=() regiones=() reglas=() iou=0 sinborde=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --escena) escenas+=("$2"); shift 2 ;;
@@ -54,7 +57,7 @@ while [[ $# -gt 0 ]]; do
     --captura) captura="$2"; shift 2 ;;
     --ventana) ventana="$2"; shift 2 ;;
     --serie) serie="$2"; shift 2 ;;
-    --imagen) imagen="$2"; shift 2 ;;
+    --imagen) imagenes+=("$2"); shift 2 ;;
     --region) regiones+=("$2"); shift 2 ;;
     --exigir) reglas+=("$2"); shift 2 ;;
     --iou) iou=1; shift ;;
@@ -66,10 +69,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "$captura" ]]; then
-  if [[ -n "$imagen" ]]; then
-    [[ -f "$captura" && -f "$imagen" && -z "$ventana" && -z "$serie" ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
+  if [[ ${#imagenes[@]} -gt 0 ]]; then
+    [[ -f "$captura" && -z "$ventana" && -z "$serie" ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
     serie="$(mktemp -d)"; trap 'rm -rf "$serie"' EXIT
-    cp "$imagen" "$serie/f00001.png"; ventana="1-1"; sinborde=1
+    i=0
+    for im in "${imagenes[@]}"; do
+      [[ -f "$im" ]] || { echo "comparar-flycast: not a file: $im" >&2; exit 2; }
+      i=$((i + 1)); cp "$im" "$serie/$(printf 'f%05d.png' "$i")"
+      echo "comparar-flycast: --imagen f$(printf '%05d' "$i") = $im"
+    done
+    ventana="1-$i"; sinborde=1
   else
     [[ -f "$captura" && "$ventana" =~ ^[0-9]+-[0-9]+$ ]] || { sed -n '4,6p' "$0" >&2; exit 2; }
   fi
