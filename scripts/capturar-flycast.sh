@@ -15,6 +15,9 @@
 # Output in DIR (default build/flycast/serie): png/f%05d.png (640x480), p480/f%05d.png (480x272,
 # box filter, whole screen, as comparar-titulo.sh scales PC), tiempos.txt ("index seconds"), and
 # pulsos.txt (the presses actually sent, with their seconds after the window appeared).
+# FLYCAST_BIOS=<dir with dc_boot.bin and dc_flash.bin> (the owner's real Dreamcast BIOS) is copied
+# into that data directory (DIR/xdg/data/flycast) so Flycast boots with it; without it Flycast uses
+# its replacement BIOS (reios), whose font is not the console's (docs/referencia-flycast.md).
 # Default P: the presses of test-psp-geometria.sh; S: 60; F: 10.
 # Host needs: flatpak with org.flycast.Flycast//stable, xvfb-run, xdotool, ffmpeg, python3-PIL.
 set -euo pipefail
@@ -43,7 +46,13 @@ flatpak info org.flycast.Flycast//stable >/dev/null 2>&1 || {
   echo "missing org.flycast.Flycast//stable" >&2; exit 1; }
 OUT="$(realpath -m "${salida:-$REPO/build/flycast/serie}")"
 rm -rf "$OUT/png" "$OUT/p480" "$OUT/xdg"
-mkdir -p "$OUT/png" "$OUT/p480" "$OUT/xdg/config" "$OUT/xdg/data"
+mkdir -p "$OUT/png" "$OUT/p480" "$OUT/xdg/config" "$OUT/xdg/data/flycast"
+if [[ -n "${FLYCAST_BIOS:-}" ]]; then
+  for f in dc_boot.bin dc_flash.bin; do
+    [[ -f "$FLYCAST_BIOS/$f" ]] || { echo "capturar-flycast: $FLYCAST_BIOS/$f missing" >&2; exit 1; }
+    cp "$FLYCAST_BIOS/$f" "$OUT/xdg/data/flycast/$f"
+  done
+fi
 
 cat > "$OUT/correr.sh" <<'SH'
 #!/bin/sh

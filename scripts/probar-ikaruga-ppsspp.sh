@@ -16,8 +16,9 @@
 #      preparar-disco-ikaruga.sh instead, which differs from the real disc from frame 4.
 #      PROBAR_CARPETA=NAME installs under ms0:/PSP/GAME/NAME instead of IKARUGA.
 #      PROBAR_CFG=file is copied as ikaruga.cfg next to the EBOOT.
-#      PROBAR_FUENTE=file is copied as BIOSFONT.BIN (the ROMFONT font, menu legend); default
-#      build/flycast/biosfont.bin, downloaded from Flycast when missing; "-" runs without it.
+#      PROBAR_BIOS=file is the owner's Dreamcast boot ROM dump (dc_boot.bin, 2 MB), copied as
+#      DC_BOOT.BIN next to the EBOOT: the EBOOT keeps only its font (menu legend). Without it
+#      there is no font and the system text is blank.
 #      PROBAR_VMU_IN=file is copied as VMU.BIN before the run; PROBAR_VMU_OUT=file receives the
 #      VMU.BIN left after it (removed if there is none).
 #      PROBAR_GRABAR=DIR records the PPSSPP screen (ffmpeg x11grab, 480x272) to DIR/f%05d.png at
@@ -74,23 +75,9 @@ cp "$EBOOT" "$GAME/EBOOT.PBP"
 [[ -n "${PROBAR_CFG:-}" ]] && cp "$PROBAR_CFG" "$GAME/ikaruga.cfg"
 [[ -n "${PROBAR_VMU_IN:-}" ]] && cp "$PROBAR_VMU_IN" "$GAME/VMU.BIN"
 for f in ${PROBAR_METER:-}; do cp "$f" "$GAME/"; done
-# The font the ROMFONT syscall points at (the Japanese menu legend): Flycast's HLE BIOS font, the
-# one the Flycast reference shows (resources/fonts/biosfont.bin of flyinghead/flycast, GPL-2.0).
-# PROBAR_FUENTE=file uses that file; =- runs without it. Default: build/flycast/biosfont.bin,
-# downloaded once when missing (a failed download only leaves the legend blank).
-FUENTE="${PROBAR_FUENTE:-$REPO/build/flycast/biosfont.bin}"
-if [[ "$FUENTE" != "-" && "$JUEGO" != "-" ]]; then
-  if [[ ! -s "$FUENTE" && -z "${PROBAR_FUENTE:-}" ]]; then
-    mkdir -p "$(dirname "$FUENTE")"
-    python3 - "$FUENTE" <<'PY' || echo "probar: no BIOS font (download failed): the menu legend stays blank" >&2
-import io, sys, urllib.request, zipfile
-url = "https://raw.githubusercontent.com/flyinghead/flycast/master/fonts/biosfont.bin.zip"
-data = urllib.request.urlopen(url, timeout=30).read()
-open(sys.argv[1], "wb").write(zipfile.ZipFile(io.BytesIO(data)).read("biosfont.bin"))
-PY
-  fi
-  if [[ -s "$FUENTE" ]]; then cp "$FUENTE" "$GAME/BIOSFONT.BIN"; fi
-fi
+# The font the ROMFONT syscall points at (the Japanese menu legend) comes from the owner's boot
+# ROM: PROBAR_BIOS=<dc_boot.bin>. Without the variable there is no font.
+if [[ -n "${PROBAR_BIOS:-}" ]]; then cp "$PROBAR_BIOS" "$GAME/DC_BOOT.BIN"; fi
 [[ "${PROBAR_SIN_IDLE:-0}" == 1 ]] && : > "$GAME/NO_IDLE_SKIP"
 if [[ "$JUEGO" != "-" ]]; then
   JUEGO="$(realpath "$JUEGO")"
