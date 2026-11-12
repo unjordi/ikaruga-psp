@@ -50,7 +50,7 @@ mkdir -p "$OUT/png" "$OUT/p480" "$R"
 IFS=, read -ra LISTA <<< "$cuadros"
 MAX=0; for n in "${LISTA[@]}"; do (( n > MAX )) && MAX=$n; done
 TOTAL=$(( K + MAX + 2 )); (( TOTAL < 4200 )) && TOTAL=4200
-export R CHD CORE K OUT
+export R CHD CORE K OUT FLYCAST_OPCIONES FLYCAST_ESTADOS
 
 # Every RetroArch run gets a fresh directory with only the BIOS: the core writes VMU files and
 # dc_nvmem.bin next to the BIOS, and a leftover VMU changes the game's first screen ("load" instead
@@ -73,6 +73,8 @@ video_gpu_screenshot = "false"
 audio_driver = "null"
 audio_enable = "false"
 config_save_on_exit = "false"
+savestate_auto_save = "${FLYCAST_ESTADOS:+true}"
+savestate_file_compression = "false"
 pause_nonactive = "false"
 video_font_enable = "false"
 CFG
@@ -82,17 +84,20 @@ reicast_threaded_rendering = "disabled"
 reicast_region = "Japan"
 reicast_language = "Japanese"
 OPT
+  local kv
+  for kv in ${FLYCAST_OPCIONES:-}; do echo "${kv%%=*} = \"${kv#*=}\"" >> "$w/cfgdir/Flycast/Flycast.opt"; done
   local rc=0
   timeout 600 xvfb-run -a -s '-screen 0 640x480x24' flatpak run --filesystem="$R" --filesystem="$OUT" \
     --filesystem="$(dirname "$CHD")":ro --command=retroarch org.libretro.RetroArch \
     -c "$w/cfg/retroarch/retroarch.cfg" -L "$CORE" "$@" || rc=$?
+  [[ -n "${FLYCAST_ESTADOS:-}" && -n "${ESTADO_NOMBRE:-}" ]] && mkdir -p "$FLYCAST_ESTADOS" && find "$w/states" -type f ! -name "*.png" -exec cp {} "$FLYCAST_ESTADOS/$ESTADO_NOMBRE" \;
   rm -rf "$w"
   return $rc
 }
 export -f correr
 
 # One replay without input (the game boots from reset, so it is the same for every press list).
-BASE="$R/base-$TOTAL.replay"
+BASE="$R/base-$TOTAL-$(printf %s "${FLYCAST_OPCIONES:-}" | md5sum | cut -c1-8).replay"
 if [[ ! -s "$BASE" ]]; then
   rm -f "$R"/base-*.replay
   correr -R "$BASE" --max-frames="$TOTAL" "$CHD" > "$R/base.log" 2>&1
@@ -101,6 +106,7 @@ python3 -I "$REPO/scripts/flycast-replay.py" "$BASE" "$OUT/entrada.replay" "$PRE
 
 una() { # <N>: screenshot after K+N frames; xvfb-run -a can collide when several start together
   local n="$1" f=$(( K + $1 )) try
+  export ESTADO_NOMBRE="f$n.state"
   for try in 1 2 3; do
     rm -f "$OUT/png/f$n.png"
     correr -P "$OUT/entrada.replay" --max-frames="$f" --max-frames-ss \
