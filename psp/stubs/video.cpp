@@ -722,9 +722,10 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 // picks it; the minifying filter keeps the strip's own point/bilinear choice.
                 if (item.tex->levels > 1) {
                     sceGuTexLevelMode(GU_TEXTURE_AUTO, 0.0f);
-                    sceGuTexFilter(item.filter == GU_NEAREST ? GU_NEAREST_MIPMAP_NEAREST
-                                                             : GU_LINEAR_MIPMAP_NEAREST,
-                                   item.filter);
+                    const int min_filter = item.filter == GU_NEAREST
+                        ? GU_NEAREST_MIPMAP_NEAREST
+                        : GU_LINEAR_MIPMAP_NEAREST;
+                    sceGuTexFilter(min_filter, item.filter);
                 } else {
                     sceGuTexFilter(item.filter, item.filter);
                 }
