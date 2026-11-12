@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-11; el documento vigente es [`../velocidad-psp.md`](../velocidad-psp.md).
+
 # Fila 9 — velocidad en la PSP (medido en PPSSPP)
 
 *Números de PPSSPP 1.20.4 (flatpak), no de una PSP-3001. `speed` es guest_s / host_s de la línea

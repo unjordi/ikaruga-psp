@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-06; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Tamaño del `.elf` de Ikaruga para la PSP (fila 4)
 
 Revisión (2026-11-06 00:3x): build desde cero repetido en un worktree limpio; mismos tamaños byte a byte en las dos variantes (CONFIRMADO).

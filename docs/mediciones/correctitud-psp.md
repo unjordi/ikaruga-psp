@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-11; el documento vigente es [`../correctitud-psp.md`](../correctitud-psp.md).
+
 # Fila 8 — correctitud en la PSP
 
 > Todo se midió en **PPSSPP 1.20.4 (flatpak)**, no en una PSP real. La suspensión y HOME se

@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-11; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Investigación de los pasos abiertos del plan
 
 Propósito: contestar con evidencia las preguntas abiertas de `docs/plan.md` para que cada paso quede

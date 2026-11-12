@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-06; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Revisión: diseño vs. medido, y optimizaciones posibles para ikaruga-psp
 
 > **Revisión (2026-11-06 10:3x):** CONFIRMADO por segunda mano: `fesetround` de newlib-psp es un stub (`jr ra; li v0,-134`), así que el modo de redondeo del guest no se aplica; FIPR/FTRV acumulan en `double` (`runtime/include/dream/runtime/sh4/ops.h:338-355`) y el ELF tiene 6 328 llamadas a `__muldf3`/`__adddf3`. Sin repetir: que `read32` a `-Os` llame a `memcpy` (SEGÚN este documento). Lo citado de `animal_forest_psp` ya no se puede verificar (no se conserva ese clon).

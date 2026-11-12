@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-06; el documento vigente es [`../arranque-psp.md`](../arranque-psp.md).
+
 # Fila 5a — arranque headless de Ikaruga en la PSP (medido en PPSSPP)
 
 > **Advertencia:** todos los números son de **PPSSPP 1.20.4 (flatpak `org.ppsspp.PPSSPP`) sobre un

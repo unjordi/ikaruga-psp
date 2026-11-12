@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-06; el documento vigente es [`../titulo-psp.md`](../titulo-psp.md).
+
 # Pantalla de título con texturas en la PSP
 
 ## Qué hay

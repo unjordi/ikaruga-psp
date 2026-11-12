@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-06; el documento vigente es [`../geometria-psp.md`](../geometria-psp.md).
+
 # Fila 5c — geometría de Ikaruga en la PSP (medido en PPSSPP)
 
 > **Advertencia:** números de **PPSSPP 1.20.4 (flatpak) sobre un Ryzen 9 9950X**, no de una PSP

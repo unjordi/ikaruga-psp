@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-11; el documento vigente es [`../video-psp.md`](../video-psp.md).
+
 # Video en la PSP: recorte de usuario (6b) y niebla (6c)
 
 Continúa `docs/titulo-psp.md`. Todo medido en PPSSPP con el EBOOT de la variante mix

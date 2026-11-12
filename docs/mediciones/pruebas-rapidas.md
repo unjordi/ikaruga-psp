@@ -1,3 +1,5 @@
+> Foto de la medición del 2026-11-11; el documento vigente es [`../pruebas-rapidas.md`](../pruebas-rapidas.md).
+
 # Pruebas rápidas en PPSSPP (fase 1.5)
 
 *Números de PPSSPP 1.20.4 (flatpak) en el host de desarrollo, no de una PSP real. `wall_s` es el

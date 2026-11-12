@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-05; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Fila 0: comparación de recompiladores estáticos de Dreamcast
 
 Fecha: 2026-11-05. Ejecutable de prueba: `1ST_READ.BIN` de Ikaruga (Japón, T38706M),

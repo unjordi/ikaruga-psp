@@ -1,3 +1,5 @@
+> Foto de las mediciones del 2026-11-05; el estado vigente está en [`../plan.md`](../plan.md) y en el índice [`../README.md`](../README.md).
+
 # Fila 4b — medir-pc: Ikaruga en el build release de dream-recomp (PC)
 
 dream-recomp `51ca276`, sin cambios de código ni recompilación.
