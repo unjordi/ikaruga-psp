@@ -556,11 +556,12 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             if (g_trace) {
                 const GeVertex& v0 = g_vertices[p.first];
                 g_trace("strip list %d n %u isp %08x tsp %08x func %d mask %d colour %08x "
-                        "x %.1f y %.1f z %.1f tcw %08x tex %d",
+                        "x %.1f y %.1f z %.1f tcw %08x tex %d rect %d,%d %dx%d",
                         item.blended ? 2 : (item.alpha_test ? 4 : 0), p.count, p.isp, p.tsp,
                         ge_depth_func(isp_depth_mode(p.isp)),
                         (item.blended || isp_z_write_disable(p.isp)) ? 1 : 0, v0.colour, v0.x,
-                        v0.y, v0.z, p.tcw, item.tex ? item.tex->format : -1);
+                        v0.y, v0.z, p.tcw, item.tex ? item.tex->format : -1, item.rect.x, item.rect.y,
+                        item.rect.w, item.rect.h);
             }
         }
     }

@@ -356,7 +356,9 @@ bool build(Entry& e, bool mirror_u, bool mirror_v) {
     while (vh / fy > kMaxSide) fy *= 2;
     int iw = vw / fx, ih = vh / fy;
     if (shrunk) {  // the GE wants power-of-two sides: the image sits in the corner, the rest clear
-        int pw = 8, ph = 8;
+        int pw = 8, ph = 8;  // the texture's own size: the cache's block sizes stay as before
+        while (pw < e.info.width) pw *= 2;
+        while (ph < e.info.height) ph *= 2;
         while (pw < w) pw *= 2;
         while (ph < h) ph *= 2;
         iw = pw, ih = ph;
