@@ -55,7 +55,7 @@ medir:
 
 `scripts/bateria.sh` corre solo (a) y (b), porque (c) ya es la (a) del título.
 
-## Tiras en perspectiva (pasos 40 y 41 del plan)
+## Tiras en perspectiva
 
 El modo through del GE interpola u, v y color linealmente en pantalla. El PowerVR los interpola con
 1/w. En el capítulo 1, el suelo y las nubes son tiras enormes (vértices hasta x ≈ −400 000 tras escalar, con 1/w
@@ -70,7 +70,7 @@ triángulos contra esa banda (Sutherland–Hodgman; posición y profundidad line
 triángulos en modo 3D: clip = (ndc·w, w) con matrices vista/modelo identidad y una proyección que
 lleva z/w a la misma profundidad que el camino through. La pasada de niebla de una tira opaca sin alpha
 test va sin textura (el color de entorno es uno por tira y la tira abarca muchos factores de niebla).
-Cuadros 2350/2700/3000: el centro sube 3–5 dB (cifras en `docs/plan.md`, paso 41). Coste en el 2600:
+Cuadros 2350/2700/3000: el centro sube 3–5 dB (cifras en `docs/plan.md`, paso «Tiras en perspectiva»). Coste en el 2600:
 speed 0,0846 frente a 0,0859, `draw_ms_per_render` 21,4 frente a 18,3, y el bloque libre mayor baja
 de 1088 a 1008 KB (vectores de vértices recortados).
 
