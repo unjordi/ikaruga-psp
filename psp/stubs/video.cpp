@@ -210,7 +210,11 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
         // 0 no fog; 1 drawn scaled by (1 - f) and then f * fog colour added in a second pass
         // (g_fog_vertices); 2 table-alpha fog, which replaces the colour with the fog colour.
         int fog;
+        // A kRect copy: index in `soft_rects` of the integer screen rectangle it covers 1:1, or -1.
+        // (An index: the translucent items are sorted, and a fat item makes the sort slower.)
+        int rect;
     };
+    std::vector<SoftRect> soft_rects;
     std::vector<Item> items;
     items.reserve(frame.polygon_count());
     const auto add_list = [&](dream::render::ListType list, bool blended, bool alpha_test) {
@@ -218,7 +222,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             float nearest = 0.0f;
             for (std::uint32_t i = 0; i < p.count; ++i)
                 nearest = std::max(nearest, frame.vertices[p.first + i].z);
-            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0, 0});
+            items.push_back({&p, nearest, blended, alpha_test, nullptr, 0, 0, 0, 0, 0, 0, -1});
         }
     };
     add_list(dream::render::ListType::Opaque, false, false);
@@ -246,7 +250,8 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             const bool mirror_v = !clamp_v && dream::render::tsp_flip_v(tsp);
             // Minified bilinear quads (more than 1.5 texels per screen pixel on an axis) take the
             // cache's prefiltered copy: see soften() in texture_psp.cpp.
-            bool soft = false;
+            SoftSpec soft;
+            bool soft_used = false;
             // Only small 1-bit-alpha images (ARGB1555, at most 16384 texels): the text the game
             // composes in VRAM. Prefiltered copies of the 3D textures would double the cache.
             const float tw = static_cast<float>(8u << (tsp >> 3 & 7u));
@@ -254,17 +259,57 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             if (g_hairlines && p.count == 4 && dream::render::tsp_filter_mode(tsp) != 0 &&
                 ((p.tcw >> 27) & 7u) == 0 && tw * th <= 16384.0f) {
                 const dream::render::Vertex* q = &frame.vertices[p.first];
+                bool minified = false;
                 for (int k : {1, 2}) {
                     const float dx = std::fabs(q[k].x - q[0].x) * kScaleX;
                     const float dy = std::fabs(q[k].y - q[0].y) * kScaleY;
                     const float du = std::fabs(q[k].u - q[0].u) * tw;
                     const float dv = std::fabs(q[k].v - q[0].v) * th;
                     if ((dx >= 1.0f && du / dx > 1.5f) || (dy >= 1.0f && dv / dy > 1.5f))
-                        soft = true;
+                        minified = true;
+                }
+                if (minified) {
+                    soft.mode = SoftSpec::kTent;
+                    soft_used = true;
+                    // An upright quad (two x and two y, u following x and v following y) is
+                    // resampled onto its screen rectangle instead.
+                    // Rotated quads (the particles) have no neighbour on q[0]'s x or y: skip the rest.
+                    const bool upright = std::fabs(q[0].x - q[1].x) < 0.01f || std::fabs(q[0].x - q[2].x) < 0.01f ||
+                                         std::fabs(q[0].y - q[1].y) < 0.01f || std::fabs(q[0].y - q[2].y) < 0.01f;
+                    float xl = q[0].x, xr = q[0].x, yt = q[0].y, yb = q[0].y;
+                    for (int k = 1; k < 4 && upright; ++k) {
+                        xl = std::min(xl, q[k].x), xr = std::max(xr, q[k].x);
+                        yt = std::min(yt, q[k].y), yb = std::max(yb, q[k].y);
+                    }
+                    const dream::render::Vertex *tl = nullptr, *br = nullptr;
+                    int corners = 0;
+                    for (int k = 0; k < 4 && upright; ++k) {
+                        const bool l = std::fabs(q[k].x - xl) < 0.01f, r = std::fabs(q[k].x - xr) < 0.01f;
+                        const bool t = std::fabs(q[k].y - yt) < 0.01f, b = std::fabs(q[k].y - yb) < 0.01f;
+                        corners += (l || r) && (t || b);
+                        if (l && t) tl = &q[k];
+                        if (r && b) br = &q[k];
+                    }
+                    const auto quarter = [](float v) {
+                        return static_cast<std::int16_t>(std::lround(v * 4.0f));
+                    };
+                    if (upright && corners == 4 && tl && br && xr - xl > 1.0f && yb - yt > 1.0f &&
+                        xr * kScaleX - xl * kScaleX < 255.0f && yb - yt < 480.0f &&
+                        br->u > tl->u && br->v > tl->v && !mirror_u && !mirror_v &&
+                        tl->u >= 0.0f && br->u <= 1.0f && tl->v >= 0.0f && br->v <= 1.0f) {
+                        soft.mode = SoftSpec::kRect;
+                        soft.x0 = quarter(xl), soft.y0 = quarter(yt);
+                        soft.x1 = quarter(xr), soft.y1 = quarter(yb);
+                        soft.u0 = quarter(tl->u * tw), soft.v0 = quarter(tl->v * th);
+                        soft.u1 = quarter(br->u * tw), soft.v1 = quarter(br->v * th);
+                        item.rect = static_cast<int>(soft_rects.size());
+                        soft_rects.push_back(soft_rect(soft));
+                    }
                 }
             }
-            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v, soft);
-            if (soft && item.tex)
+            item.tex = texcache_get(p.tcw, tsp, mirror_u, mirror_v, soft_used ? &soft : nullptr);
+            if (!item.tex) item.rect = -1;
+            if (soft_used && item.tex)
                 ++stats.softened;
             if (item.tex) {
                 const unsigned shading = dream::render::tsp_shading_instruction(tsp);
@@ -303,6 +348,8 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             fog ? (fog_control == 1 ? fog->vertex_colour : fog->table_colour) : 0;
         const bool replace_to_modulate = item.fog == 1 && item.tex &&
             dream::render::tsp_shading_instruction(tsp) == 0;
+        const bool on_rect = item.rect >= 0;
+        const SoftRect rect = on_rect ? soft_rects[static_cast<std::size_t>(item.rect)] : SoftRect();
         for (std::uint32_t i = 0; i < p.count; ++i) {
             const dream::render::Vertex& v = frame.vertices[p.first + i];
             GeVertex& o = g_vertices[p.first + i];
@@ -311,6 +358,14 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             o.colour = argb_to_abgr(v.base, use_alpha);
             o.x = v.x * kScaleX;
             o.y = v.y * kScaleY;
+            if (on_rect) {  // the copy is the rectangle's pixels: draw it over them 1:1
+                const bool right = v.x * kScaleX > static_cast<float>(rect.x) + 0.5f * static_cast<float>(rect.w);
+                const bool bottom = v.y * kScaleY > static_cast<float>(rect.y) + 0.5f * static_cast<float>(rect.h);
+                o.x = static_cast<float>(rect.x + (right ? rect.w : 0));
+                o.y = static_cast<float>(rect.y + (bottom ? rect.h : 0));
+                o.u = right ? static_cast<float>(rect.w) : 0.0f;
+                o.v = bottom ? static_cast<float>(rect.h) : 0.0f;
+            }
             o.z = std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, 65535.0f);
             if (item.fog) {
                 const float f = std::clamp(fog_control == 1
@@ -510,12 +565,14 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             ++stats.drawn;
             if (g_trace) {
                 const GeVertex& v0 = g_vertices[p.first];
+                const SoftRect rect = item.rect >= 0 ? soft_rects[static_cast<std::size_t>(item.rect)] : SoftRect();
                 g_trace("strip list %d n %u isp %08x tsp %08x func %d mask %d colour %08x "
-                        "x %.1f y %.1f z %.1f tcw %08x tex %d",
+                        "x %.1f y %.1f z %.1f tcw %08x tex %d rect %d,%d %dx%d",
                         item.blended ? 2 : (item.alpha_test ? 4 : 0), p.count, p.isp, p.tsp,
                         ge_depth_func(isp_depth_mode(p.isp)),
                         (item.blended || isp_z_write_disable(p.isp)) ? 1 : 0, v0.colour, v0.x,
-                        v0.y, v0.z, p.tcw, item.tex ? item.tex->format : -1);
+                        v0.y, v0.z, p.tcw, item.tex ? item.tex->format : -1, rect.x, rect.y,
+                        rect.w, rect.h);
             }
         }
     }

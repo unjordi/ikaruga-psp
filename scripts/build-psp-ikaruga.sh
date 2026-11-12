@@ -55,11 +55,16 @@ fi
 mkdir -p "$OUT"
 
 # Patched copy of the parts of the runtime we compile; the submodule itself stays untouched.
+# Old outputs go first, so a failed build cannot leave a stale EBOOT that looks current.
 rm -rf "$OUT/src"
+rm -f "$OUT"/EBOOT*.PBP "$OUT"/ikaruga*.elf
 mkdir -p "$OUT/src"
 cp -r "$DR/runtime" "$DR/render" "$OUT/src/"
 for p in "$REPO"/patches/dream-recomp/*.patch; do
-  patch --quiet --directory="$OUT/src" -p1 < "$p"
+  patch --quiet --forward --batch --directory="$OUT/src" -p1 < "$p" >/dev/null || {
+    echo "[build-psp-ikaruga] $(basename "$p") does not apply to $DR (a DREAM_RECOMP checkout that already has these patches?)" >&2
+    exit 1
+  }
 done
 
 opt_flags() {  # <variant> -> "OPT_RT OPT_GEN"
