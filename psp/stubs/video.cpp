@@ -71,6 +71,21 @@ bool g_clip = true;
 bool g_fog = true;
 bool g_hairlines = true;
 std::vector<GeVertex> g_fog_vertices;  // second pass of fogged strips
+// Perspective strips. Through mode interpolates u, v and colour linearly on screen; the PowerVR
+// (and Flycast) interpolate them perspective-correct with 1/w. For a strip whose 1/w varies (the
+// chapter-1 sky and ground reach x -400000 with 1/w near 0) the affine mapping samples almost one
+// texel: the sky comes out flat. Those strips are clipped against a guard band around the screen
+// (attributes interpolated with 1/w) and drawn in 3D mode with w = 1 / (1/w), so the GE corrects
+// the perspective; g_persp_vertices / g_persp_fog_vertices hold them as triangle lists.
+constexpr float kGuardX0 = -64.0f, kGuardX1 = 480.0f + 64.0f;
+constexpr float kGuardY0 = -64.0f, kGuardY1 = 272.0f + 64.0f;
+constexpr int kVertexType3d = GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D;
+int g_persp = 1;  // 0 off, 1 strips reaching outside the guard band, 2 every strip whose 1/w varies
+std::vector<GeVertex> g_persp_vertices;
+std::vector<GeVertex> g_persp_fog_vertices;
+// Colour before the fog split, per vertex (fogged strips), for the perspective path to redo the
+// split at the clipped vertices with their own 1/w.
+std::vector<std::uint32_t> g_base_colours;
 std::uint32_t g_front = kColourBytes;  // eDRAM offset of the buffer on screen
 std::uint32_t g_back = 0;
 
@@ -158,6 +173,7 @@ int clip_rects(const dream::render::Polygon& p, int rects[4][4]) {
 void video_set_clip(bool enabled) { g_clip = enabled; }
 void video_set_fog(bool enabled) { g_fog = enabled; }
 void video_set_hairlines(bool enabled) { g_hairlines = enabled; }
+void video_set_perspective(int mode) { g_persp = mode; }
 
 bool video_init() {
     sceGuInit();
@@ -188,6 +204,147 @@ void video_set_drawing(bool enabled) { g_enabled = enabled; }
 void video_set_depth_test(bool enabled) { g_depth = enabled; }
 void video_set_trace(void (*trace)(const char*, ...)) { g_trace = trace; }
 
+namespace {
+
+// A clip vertex: screen x, y, depth, 1/w, and u, v and the two colours (draw and fog pass).
+struct ClipVertex {
+    float x, y, z, rhw;
+    float u, v;
+    float c[4], f[4], b[4];
+};
+
+bool outside_guard(const GeVertex& v) {
+    return v.x < kGuardX0 || v.x > kGuardX1 || v.y < kGuardY0 || v.y > kGuardY1;
+}
+
+ClipVertex clip_lerp(const ClipVertex& a, const ClipVertex& b, float s) {
+    // Screen-space position and depth (linear in 1/w) go linearly; the rest with 1/w.
+    ClipVertex o;
+    o.x = a.x + (b.x - a.x) * s;
+    o.y = a.y + (b.y - a.y) * s;
+    o.z = a.z + (b.z - a.z) * s;
+    const float wa = a.rhw * (1.0f - s), wb = b.rhw * s;
+    o.rhw = wa + wb;
+    const float k = o.rhw > 0.0f ? 1.0f / o.rhw : 0.0f;
+    o.u = (a.u * wa + b.u * wb) * k;
+    o.v = (a.v * wa + b.v * wb) * k;
+    for (int i = 0; i < 4; ++i) {
+        o.c[i] = (a.c[i] * wa + b.c[i] * wb) * k;
+        o.f[i] = (a.f[i] * wa + b.f[i] * wb) * k;
+        o.b[i] = (a.b[i] * wa + b.b[i] * wb) * k;
+    }
+    return o;
+}
+
+ClipVertex to_clip(const GeVertex& g, const GeVertex& fog, std::uint32_t base, float rhw) {
+    ClipVertex o;
+    o.x = g.x;
+    o.y = g.y;
+    o.z = g.z;
+    o.rhw = rhw;
+    o.u = g.u;
+    o.v = g.v;
+    for (int i = 0; i < 4; ++i) {
+        o.c[i] = static_cast<float>((g.colour >> (8 * i)) & 0xFFu);
+        o.f[i] = static_cast<float>((fog.colour >> (8 * i)) & 0xFFu);
+        o.b[i] = static_cast<float>((base >> (8 * i)) & 0xFFu);
+    }
+    return o;
+}
+
+std::uint32_t pack(const float* c) {
+    std::uint32_t r = 0;
+    for (int i = 0; i < 4; ++i)
+        r |= static_cast<std::uint32_t>(std::clamp(c[i] + 0.5f, 0.0f, 255.0f)) << (8 * i);
+    return r;
+}
+
+// How a perspective strip's fog is redone at a clipped vertex: table fog (the PowerVR computes
+// it per pixel from 1/w) from that vertex's 1/w; vertex fog and no fog keep the interpolated
+// colours.
+struct FogRedo {
+    const dream::render::FogSettings* fog = nullptr;  // null: keep the interpolated colours
+    int mode = 0;            // Item::fog
+    std::uint32_t colour = 0;  // fog colour
+};
+
+void redo_fog(ClipVertex& c, const FogRedo& r) {
+    if (!r.fog)
+        return;
+    const float f = std::clamp(fog_table_factor(*r.fog, c.rhw), 0.0f, 1.0f);
+    std::uint32_t o, q;
+    if (r.mode == 2) {
+        o = (r.colour & 0x00FFFFFFu) | (static_cast<std::uint32_t>(f * 255.0f + 0.5f) << 24);
+        q = o;
+    } else {
+        o = scale_rgb(pack(c.b), 1.0f - f);
+        q = (o & 0xFF000000u) | (scale_rgb(r.colour, f) & 0x00FFFFFFu);
+    }
+    for (int i = 0; i < 4; ++i) {
+        c.c[i] = static_cast<float>((o >> (8 * i)) & 0xFFu);
+        c.f[i] = static_cast<float>((q >> (8 * i)) & 0xFFu);
+    }
+}
+
+// 3D-mode vertex: clip coordinates (ndc * w, w) with the identity view and model matrices; the
+// projection matrix (set per frame) turns z = w into the depth the through path would write.
+GeVertex to_3d(const ClipVertex& c, bool fog_pass) {
+    const float w = 1.0f / c.rhw;
+    GeVertex o;
+    o.u = c.u;
+    o.v = c.v;
+    o.colour = pack(fog_pass ? c.f : c.c);
+    o.x = (c.x / 240.0f - 1.0f) * w;
+    o.y = (1.0f - c.y / 136.0f) * w;
+    o.z = w;
+    return o;
+}
+
+// Clips the strip's triangles against the guard band and appends them as 3D triangle lists to
+// g_persp_vertices and g_persp_fog_vertices.
+void clip_strip(const GeVertex* v, const GeVertex* fog, const std::uint32_t* base,
+                const dream::render::Vertex* src, std::uint32_t n, const FogRedo& redo) {
+    for (std::uint32_t t = 0; t + 2 < n; ++t) {
+        ClipVertex poly[12], next[12];
+        int count = 3;
+        for (int k = 0; k < 3; ++k)
+            poly[k] = to_clip(v[t + k], fog[t + k], base[t + k], std::max(src[t + k].z, 1e-12f));
+        for (int plane = 0; plane < 4 && count > 0; ++plane) {
+            const auto dist = [plane](const ClipVertex& q) {
+                switch (plane) {
+                case 0: return q.x - kGuardX0;
+                case 1: return kGuardX1 - q.x;
+                case 2: return q.y - kGuardY0;
+                default: return kGuardY1 - q.y;
+                }
+            };
+            int out = 0;
+            for (int k = 0; k < count; ++k) {
+                const ClipVertex& a = poly[k];
+                const ClipVertex& b = poly[(k + 1) % count];
+                const float da = dist(a), db = dist(b);
+                if (da >= 0.0f)
+                    next[out++] = a;
+                if ((da >= 0.0f) != (db >= 0.0f))
+                    next[out++] = clip_lerp(a, b, da / (da - db));
+            }
+            count = out;
+            for (int k = 0; k < count; ++k)
+                poly[k] = next[k];
+        }
+        for (int k = 0; k < count; ++k)
+            redo_fog(poly[k], redo);
+        for (int k = 1; k + 1 < count; ++k) {
+            for (int j : {0, k, k + 1}) {
+                g_persp_vertices.push_back(to_3d(poly[j], false));
+                g_persp_fog_vertices.push_back(to_3d(poly[j], true));
+            }
+        }
+    }
+}
+
+}  // namespace
+
 VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                             const dream::render::FogSettings* fog) {
     VideoStats stats;
@@ -213,6 +370,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
         // A kRect copy: index in `soft_rects` of the integer screen rectangle it covers 1:1, or -1.
         // (An index: the translucent items are sorted, and a fat item makes the sort slower.)
         int rect;
+        // Drawn in 3D mode (perspective): first vertex in g_persp_vertices and count, or -1.
+        int persp_first = -1;
+        int persp_count = 0;
     };
     std::vector<SoftRect> soft_rects;
     std::vector<Item> items;
@@ -237,6 +397,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
     // texture coordinates depend on its polygon's TSP word and texture.
     g_vertices.resize(frame.vertices.size());
     g_fog_vertices.resize(frame.vertices.size());
+    g_base_colours.assign(frame.vertices.size(), 0u);
     for (Item& item : items) {
         const auto& p = *item.poly;
         const std::uint32_t tsp = p.tsp;
@@ -378,6 +539,7 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                         (static_cast<std::uint32_t>(f * 255.0f + 0.5f) << 24);
                 } else {
                     const std::uint32_t base = replace_to_modulate ? (o.colour | 0x00FFFFFFu) : o.colour;
+                    g_base_colours[p.first + i] = base;
                     o.colour = scale_rgb(base, 1.0f - f);
                     q.colour = (o.colour & 0xFF000000u) | (scale_rgb(fog_colour, f) & 0x00FFFFFFu);
                 }
@@ -446,6 +608,43 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
             }
         }
     }
+    // Perspective strips (see kGuardX0): clipped and converted to 3D mode.
+    g_persp_vertices.clear();
+    g_persp_fog_vertices.clear();
+    if (g_persp) {
+        for (Item& item : items) {
+            const auto& p = *item.poly;
+            if (item.rect >= 0)
+                continue;
+            bool pick = false;
+            float lo = frame.vertices[p.first].z, hi = lo;
+            for (std::uint32_t i = 0; i < p.count; ++i) {
+                pick = pick || outside_guard(g_vertices[p.first + i]);
+                lo = std::min(lo, frame.vertices[p.first + i].z);
+                hi = std::max(hi, frame.vertices[p.first + i].z);
+            }
+            if (g_persp == 2 && item.tex && hi > lo * 1.01f)
+                pick = true;
+            if (!pick || !(lo > 0.0f))
+                continue;
+            item.persp_first = static_cast<int>(g_persp_vertices.size());
+            FogRedo redo;
+            const unsigned fog_control = dream::render::tsp_fog_control(p.tsp);
+            if (item.fog && fog_control != 1) {
+                redo.fog = fog;
+                redo.mode = item.fog;
+                redo.colour = fog->table_colour;
+            }
+            clip_strip(&g_vertices[p.first], &g_fog_vertices[p.first], &g_base_colours[p.first],
+                        &frame.vertices[p.first], p.count, redo);
+            item.persp_count = static_cast<int>(g_persp_vertices.size()) - item.persp_first;
+            ++stats.perspective;
+        }
+        sceKernelDcacheWritebackRange(g_persp_vertices.data(),
+            static_cast<unsigned>(g_persp_vertices.size() * sizeof(GeVertex)));
+        sceKernelDcacheWritebackRange(g_persp_fog_vertices.data(),
+            static_cast<unsigned>(g_persp_fog_vertices.size() * sizeof(GeVertex)));
+    }
     sceKernelDcacheWritebackRange(g_vertices.data(),
                                   static_cast<unsigned>(g_vertices.size() * sizeof(GeVertex)));
     sceKernelDcacheWritebackRange(g_fog_vertices.data(),
@@ -462,6 +661,19 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
         sceGuDisable(GU_DEPTH_TEST);
     const unsigned ref = static_cast<unsigned>(std::clamp(alpha_ref, 0.0f, 1.0f) * 255.0f);
     sceGuAlphaFunc(GU_GEQUAL, static_cast<int>(ref), 0xFF);
+    if (g_persp) {
+        // 3D mode for the perspective strips: clip = (x, y, A w + B, w), so z / w = A + B / w is
+        // the ndc depth that the viewport (depth range 65535..0: 32767 - 32768 z) turns into the
+        // through path's zbias + (1/w - zmin) * zscale.
+        const float a = (32767.0f - zbias + zmin * zscale) / 32768.0f;
+        const float b = -zscale / 32768.0f;
+        ScePspFMatrix4 m = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, a, 1}, {0, 0, b, 0}};
+        sceGuSetMatrix(GU_PROJECTION, &m);
+        ScePspFMatrix4 id = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+        sceGuSetMatrix(GU_VIEW, &id);
+        sceGuSetMatrix(GU_MODEL, &id);
+        sceGuTexOffset(0.0f, 0.0f);
+    }
     sceGuDisable(GU_TEXTURE_2D);
     const void* bound = nullptr;
     bool texturing = false;
@@ -519,24 +731,34 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 ++(p.tile_clip == 2 ? stats.clip_inside : stats.clip_outside);
             // Mode 2 draws once in its rectangle; mode 3 once per band around it. Nothing to
             // draw when the rectangle (or its outside) is empty on screen.
-            const auto draw = [&](const GeVertex* v) {
+            const bool persp = item.persp_first >= 0;
+            if (persp && item.persp_count == 0)
+                continue;  // wholly outside the guard band
+            const int prim = persp ? GU_TRIANGLES : GU_TRIANGLE_STRIP;
+            const int vtype = persp ? kVertexType3d : kVertexType;
+            const int nverts = persp ? item.persp_count : static_cast<int>(p.count);
+            if (persp && item.tex)  // 3D mode takes u, v normalised to the image
+                sceGuTexScale(1.0f / static_cast<float>(item.tex->width),
+                              1.0f / static_cast<float>(item.tex->height));
+            const auto draw = [&](bool fog_pass) {
+                const GeVertex* v = persp
+                    ? (fog_pass ? g_persp_fog_vertices : g_persp_vertices).data() + item.persp_first
+                    : (fog_pass ? g_fog_vertices : g_vertices).data() + p.first;
                 if (nrects < 0) {
                     if (scissored) {
                         sceGuScissor(0, 0, kWidth, kHeight);
                         scissored = false;
                     }
-                    sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count),
-                                   nullptr, v);
+                    sceGuDrawArray(prim, vtype, nverts, nullptr, v);
                     return;
                 }
                 for (int r = 0; r < nrects; ++r) {
                     sceGuScissor(rects[r][0], rects[r][1], rects[r][2], rects[r][3]);
-                    sceGuDrawArray(GU_TRIANGLE_STRIP, kVertexType, static_cast<int>(p.count),
-                                   nullptr, v);
+                    sceGuDrawArray(prim, vtype, nverts, nullptr, v);
                 }
                 scissored = true;
             };
-            draw(g_vertices.data() + p.first);
+            draw(false);
             if (item.fog == 1) {
                 // Second pass: f * fog colour added where the first pass landed. GU_TFX_BLEND
                 // with the vertex and environment colours both f * fog gives that colour with the
@@ -545,7 +767,13 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 // (only alpha or one have a direct equivalent; others get no fog).
                 const unsigned src = dream::render::tsp_src_instr(p.tsp);
                 if (!item.blended || src == 1 || src == 4) {
-                    if (item.tex) {
+                    // A perspective strip spans many fog factors, and the environment colour is
+                    // one: when the texel's alpha does not matter (opaque, no alpha test) the
+                    // pass goes untextured and the vertices' f * fog is exact.
+                    const bool plain = persp && item.tex && !item.blended && !item.alpha_test;
+                    if (plain)
+                        sceGuDisable(GU_TEXTURE_2D);
+                    if (item.tex && !plain) {
                         sceGuTexFunc(GU_TFX_BLEND, item.tfx == GU_TFX_DECAL ? GU_TCC_RGB : item.tcc);
                         sceGuTexEnvColor(g_fog_vertices[p.first].colour & 0x00FFFFFFu);
                     }
@@ -557,8 +785,10 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                     if (!item.blended)
                         sceGuDepthFunc(GU_EQUAL);
                     sceGuDepthMask(GU_TRUE);
-                    draw(g_fog_vertices.data() + p.first);
-                    if (item.tex)
+                    draw(true);
+                    if (plain)
+                        sceGuEnable(GU_TEXTURE_2D);
+                    else if (item.tex)
                         sceGuTexFunc(item.tfx, item.tcc);
                 }
             }
