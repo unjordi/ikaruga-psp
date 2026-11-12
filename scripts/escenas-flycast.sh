@@ -15,3 +15,12 @@ VENTANA_PAUSA="336-372"    # pause menu over the chapter-1 loading
 VENTANA_CAP1_ADELANTE="440-520"  # later in chapter 1 (shielded ship, tower, enemies)
 CUADRO_SELECT=1750
 CUADRO_CAP1=2350
+# DESFASE_<N>: the frame of scripts/capturar-flycast-cuadro.sh (default presses, K=700) that shows
+# what the PSP shows at guest frame N is N+DESFASE_<N>. Measured (plan step 43,
+# docs/referencia-flycast.md «Desfase de la línea de tiempo»): the core counts one frame per
+# presented image, not per vblank, so it drifts at the disc loads (no renders); the best match is
+# searched in N+DESFASE-2 .. N+DESFASE+2 with comparar-flycast.sh --imagen (repeated).
+DESFASE_1000=3
+DESFASE_1750=-20
+DESFASE_2350=-17
+DESFASE_2700=-17
