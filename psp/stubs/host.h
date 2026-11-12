@@ -28,6 +28,7 @@ struct VideoStats {
     std::uint32_t hairlines = 0;  // sub-pixel untextured quads widened to one pixel
     std::uint32_t minified = 0;   // point-sampled quads sampled bilinearly (minified)
     std::uint32_t softened = 0;   // minified bilinear quads given a prefiltered texture
+    std::uint32_t perspective = 0;  // strips drawn in 3D mode, perspective-correct
 };
 bool video_init();
 // Off: frames are still cleared and swapped, but no geometry is drawn.
@@ -45,6 +46,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
 // Off: polygons are drawn without fog.
 void video_set_fog(bool enabled);
 void video_set_hairlines(bool enabled);
+// 0: every strip in through mode (affine). 1: strips reaching outside the guard band go to 3D
+// mode, clipped and perspective-correct. 2: also every textured strip whose 1/w varies.
+void video_set_perspective(int mode);
 // The buffer on screen as packed RGB888, top row first.
 bool video_capture(std::vector<std::uint8_t>& rgb, unsigned& width, unsigned& height);
 
