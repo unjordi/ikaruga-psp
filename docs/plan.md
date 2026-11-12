@@ -94,7 +94,7 @@ Lo que no cambia en la PSP: el código traducido del SH-4 (`gen/`) y el núcleo 
 68. ⬜ Tarjeta de memoria: al arrancar, si falta `VMU.BIN` y existe `VMU.BIN.TMP`, usarla (hueco de un corte de energía).
 69. ⬜ `DISCO.ISO` desde el CHD del usuario con un solo comando documentado, sin compilar a mano; retirar `preparar-disco-ikaruga.sh`. Cierra cuando el EBOOT arranca con ese disco y `test-psp-titulo.sh` (contra Flycast) pasa.
 70. ⬜ Empaquetado: título del EBOOT, ícono, `MEMSIZE=1` (ya), e instrucciones para poner el disco propio en `ms0:`.
-71. ⬜ Texturas HD de la versión de Steam (`tex.arc`, NARC): identificar el formato, emparejar con las del disco, reducirlas a lo que quepa en la PSP (fuentes, HUD, menús, fondos). Se extraen en la máquina del usuario, nunca en el repo.
+71. ⬜ Texturas HD de la versión de Steam (`tex.arc`, NARC): identificar el formato, emparejar con las del disco, reducirlas a lo que quepa en la PSP (fuentes, HUD, menús, fondos) y usarlas solo donde no hagan crashear el EBOOT: cada uso se mide con `memoria=1` en la escena más cargada que lo toque y no entra si deja el bloque libre más grande por debajo del margen de `docs/memoria-psp.md`. Se extraen en la máquina del usuario, nunca en el repo.
 
 ### En la PSP real
 
