@@ -767,7 +767,13 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 // (only alpha or one have a direct equivalent; others get no fog).
                 const unsigned src = dream::render::tsp_src_instr(p.tsp);
                 if (!item.blended || src == 1 || src == 4) {
-                    if (item.tex) {
+                    // A perspective strip spans many fog factors, and the environment colour is
+                    // one: when the texel's alpha does not matter (opaque, no alpha test) the
+                    // pass goes untextured and the vertices' f * fog is exact.
+                    const bool plain = persp && item.tex && !item.blended && !item.alpha_test;
+                    if (plain)
+                        sceGuDisable(GU_TEXTURE_2D);
+                    if (item.tex && !plain) {
                         sceGuTexFunc(GU_TFX_BLEND, item.tfx == GU_TFX_DECAL ? GU_TCC_RGB : item.tcc);
                         sceGuTexEnvColor(g_fog_vertices[p.first].colour & 0x00FFFFFFu);
                     }
@@ -780,7 +786,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                         sceGuDepthFunc(GU_EQUAL);
                     sceGuDepthMask(GU_TRUE);
                     draw(true);
-                    if (item.tex)
+                    if (plain)
+                        sceGuEnable(GU_TEXTURE_2D);
+                    else if (item.tex)
                         sceGuTexFunc(item.tfx, item.tcc);
                 }
             }
