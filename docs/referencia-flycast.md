@@ -82,14 +82,15 @@ suben 1):
 `emu.render()`, que corre el SH4 hasta que se presenta una imagen (`present()` →
 `getSh4Executor()->Stop()`, `core/hw/pvr/Renderer_if.cpp:262-275`); sin render solo corta
 `Emulator::vblank` tras 50 ms de SH4 (`core/emulator.cpp:1084-1095`), es decir ~3 VBlanks. Con las
-pulsaciones de siempre (`K`=700), contador del juego +13 menos el cuadro del core:
+pulsaciones de siempre (`K`=700), VBlank del juego (contador + 13, la numeración de la PSP) menos el
+número de cuadro N de `capturar-flycast-cuadro.sh`:
 
 | cuadro del core | 100-460 (antes de START) | 800, 1000 | 1200-1400 | 1500-1800 | 1900 | 2000-2700 |
 |---|---|---|---|---|---|---|
-| VBlank del juego − cuadro | +242 (1:1) | +256 | +258 | +295 | +306 | +317 |
+| VBlank del juego − cuadro | +242 (1:1) | +243 | +245 | +282 | +293 | +304 |
 
 Los saltos caen en las cargas de disco que siguen a las pulsaciones (1000→1200: +2; 1400→1500:
-+37; 1800→1900 y 1900→2000: +11 y +11), donde el juego no renderiza. Por eso el desfase en imagen es
++37; 1800→1900: +11; 1900→2000: +11), donde el juego no renderiza. Por eso el desfase en imagen es
 +3 en el 1000 y ≈−17…−20 desde el 1500: las pulsaciones del core caen en VBlanks del juego cada vez
 más tarde y la escena llega antes en número de cuadro del core.
 
