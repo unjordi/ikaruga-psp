@@ -19,7 +19,7 @@ fallos=0
 mal() { echo "FAIL: $*"; fallos=$((fallos + 1)); }
 
 echo "== exit callback at frame 120"
-printf 'rtc_semilla = 1\ntest_exit_at = 120\n' >"$OUT/salida.cfg"
+printf 'rtc_semilla = 1\nprueba_salida_en = 120\n' >"$OUT/salida.cfg"
 PROBAR_CFG="$OUT/salida.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$1" "$2" 90 \
   "$OUT/salida.log" >"$OUT/salida.out" 2>"$OUT/salida.err" || true
 # The callback runs at the next reschedule, so the guest may finish the frame it is in. PPSSPP
@@ -33,7 +33,7 @@ else
 fi
 
 echo "== suspend and resume at frame 30"
-printf 'rtc_semilla = 1\ntest_suspend_at = 30\n' >"$OUT/suspension.cfg"
+printf 'rtc_semilla = 1\nprueba_suspension_en = 30\n' >"$OUT/suspension.cfg"
 if IGUAL_OUT="$OUT/igual-pc" HASTA=240 RTC_SEED=1 PROBAR_CFG_EXTRA="$OUT/suspension.cfg" \
    "$REPO/scripts/test-psp-igual-pc.sh" "$1" "$2" 150 >"$OUT/suspension.txt" 2>&1; then
   echo "ok: $(tail -1 "$OUT/suspension.txt")"

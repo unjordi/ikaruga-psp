@@ -12,7 +12,7 @@ OUT="$REPO/build/psp/evidencia"
 mkdir -p "$OUT"
 log="$OUT/test-rtc.log"
 rm -f "$log"
-printf '# test\nrtc_seed = 1000\n' >"$OUT/test-rtc.cfg"
+printf '# test\nrtc_semilla = 1000\n' >"$OUT/test-rtc.cfg"
 PROBAR_CFG="$OUT/test-rtc.cfg" "$REPO/scripts/probar-ikaruga-ppsspp.sh" "$1" "$2" "${3:-30}" "$log" \
   >/dev/null 2>&1 || true
 [[ -s "$log" ]] || { echo "FAIL: the EBOOT wrote no log" >&2; exit 1; }
