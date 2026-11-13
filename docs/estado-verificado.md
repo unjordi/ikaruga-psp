@@ -58,6 +58,7 @@ Las pruebas de imagen (`test-psp-titulo`, `test-psp-video`, `test-psp-texturas-j
 | 40, 41 perspectiva | sostiene (re-medido) | el SSIM 0,247 del 2600 era desfase. `perspectiva=1` frente a `0`: 2300 nubes 29,33/0,907 frente a 23,10/0,626; 2600 centro 21,16/0,783 frente a 19,81/0,757; 2700 nubes 30,91/0,943 frente a 19,39/0,628. A ojo, el 2600 es la misma escena con el cielo más claro y con menos contraste que en Flycast |
 | 43 desfase | sostiene | las pruebas lo usan; título medido (+6) |
 | 44 mipmaps | sostiene | 2300 `ala` 28,36/0,927 frente a `mipmaps=0` 24,24/0,844 (iguales a su cierre) |
+| 45 profundidad | cerrado en esta revisión | imagen contra Flycast alineado y a ojo (cifras en el plan); `analizar-ta` describe el reparto, no la pantalla |
 | 46 perspectiva de texturas | sostiene | 2300 `cielo-sup` 32,81/0,956 |
 
 ## Pruebas que no prueban lo que dicen
