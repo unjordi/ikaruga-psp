@@ -6,8 +6,9 @@
 # --double runs test-psp-igual-pc-double.sh with that EBOOT (built with DREAM_FPU_DOUBLE=1).
 # Env: PROBAR_DISCO (required, real disc dump) and DREAM_RECOMP (the double PC launcher's checkout)
 # as each test needs them. Outputs: build/psp/evidencia/bateria/<name>.out and resumen.txt.
-# The image tests (geometria, titulo, video-*, texturas-juego) compare only against the Flycast
-# reference series (docs/referencia-flycast.md; recorded on first use, ~2 min). test-psp-video.sh (c)
+# The image tests (titulo, video-*, texturas-juego) compare against Flycast's image aligned with
+# each guest frame (scripts/flycast-alineado.sh; needs FLYCAST_BIOS, recorded on first use);
+# geometria against the Flycast reference series. test-psp-video.sh (c)
 # is test-psp-titulo.sh (a) (same EBOOT, frame 1243): only (a) and (b) run.
 set -uo pipefail
 

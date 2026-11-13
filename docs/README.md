@@ -11,6 +11,7 @@ Todo el repo es sin datos del juego: necesitas tu propia copia del disco (`prime
 | doc | responde |
 |---|---|
 | [`plan.md`](plan.md) | qué está hecho y qué sigue, una sola lista de pasos en orden |
+| [`estado-verificado.md`](estado-verificado.md) | cada paso cerrado del plan revisado con el protocolo de pruebas: qué se re-midió y su veredicto |
 | [`primer-uso.md`](primer-uso.md) | cómo ir de tu disco a la carpeta de la PSP, y todas las claves de `ikaruga.cfg` |
 | [`reproducir-pc.md`](reproducir-pc.md) | cómo recompilar Ikaruga en PC con dream-recomp (el C++ generado y el lanzador de depuración) |
 | [`arranque-psp.md`](arranque-psp.md) | qué hace el EBOOT al arrancar, qué archivos lee y escribe, el log de `tick` |

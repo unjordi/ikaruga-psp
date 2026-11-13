@@ -21,6 +21,9 @@ CUADRO_CAP1=2350
 # presented image, not per vblank, so it drifts at the disc loads (no renders); the best match is
 # searched in N+DESFASE-2 .. N+DESFASE+2 with comparar-flycast.sh --imagen (repeated).
 DESFASE_1000=3
+# DESFASE_TITULO_<N>: the same, for the title test's presses (start@700 alone); measured in
+# docs/titulo-psp.md.
+DESFASE_TITULO_1243=6
 DESFASE_1750=-20
 DESFASE_2300=-17
 DESFASE_2350=-17

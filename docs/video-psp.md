@@ -43,14 +43,14 @@ las líneas `render:` y `video:`) vale 0; si algún día sube, el EBOOT seguirí
 PROBAR_DISCO=<DISCO-real.ISO> scripts/test-psp-video.sh build/psp/ikaruga/EBOOT.PBP $J [--reusar] [--solo a|b|c]
 ```
 
-Cinco corridas de PPSSPP sin limitador, una a la vez, contra la serie de Flycast
-(`docs/referencia-flycast.md`; ventanas en `scripts/escenas-flycast.sh`). Umbrales fijados antes de
+Cinco corridas de PPSSPP sin limitador, una a la vez, contra la imagen de Flycast alineada con cada
+cuadro (`scripts/flycast-alineado.sh`, `docs/referencia-flycast.md`). Umbrales fijados antes de
 medir:
 
 | prueba | escena | umbral | contraprueba |
 |---|---|---|---|
-| (a) recorte | cuadro 2350, columnas laterales (izquierda x < 100, derecha x ≥ 380 a 480×272) | SSIM ≥ 0,7 en cada una | `recorte=0`: al menos una < 0,7 |
-| (b) niebla | cuadro 1750 (SELECT GAME MODE, ventana 250-312) | pantalla completa ≥ 20 dB y SSIM ≥ 0,7; botones (60,105)-(270,225) ≥ 20 dB | `niebla=0`: botones < 20 dB |
+| (a) recorte | cuadro 2350, columnas laterales (izquierda x < 100, derecha x ≥ 380 a 480×272) | SSIM ≥ 0,7 en cada una (medido 0,984 / 0,998) | `recorte=0`: al menos una < 0,7 (0,116 / 0,085) |
+| (b) niebla | cuadro 1750 (SELECT GAME MODE) | pantalla completa ≥ 20 dB y SSIM ≥ 0,7; botones (60,105)-(270,225) ≥ 20 dB (medido 31,34 / 0,930; botones 28,35) | `niebla=0`: botones < 20 dB (15,86) |
 | (c) título | cuadro 1243 | ≥ 25 dB y SSIM ≥ 0,85 (es la (a) de `test-psp-titulo.sh`) | — |
 
 `scripts/bateria.sh` corre solo (a) y (b), porque (c) ya es la (a) del título.

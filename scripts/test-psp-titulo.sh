@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Acceptance tests of the textured title screen (docs/titulo-psp.md), against the Flycast
-# reference series (docs/referencia-flycast.md), at guest frame N (default 1243, start@700):
-#   (a) whole screen PSNR >= 25 dB and SSIM >= 0.85 against the title window of the series;
+# Acceptance tests of the textured title screen (docs/titulo-psp.md), against Flycast's image
+# aligned with guest frame N (default 1243, start@700; scripts/flycast-alineado.sh, DESFASE_TITULO_N):
+#   (a) whole screen PSNR >= 25 dB and SSIM >= 0.85;
 #   (b) negative: with textures off (ikaruga.cfg texturas=0) the same comparison is below 25 dB;
-#   (c) discrimination: the PSP capture of (a) against the SELECT GAME MODE window is below 25 dB;
+#   (c) discrimination: the PSP capture of (a) against Flycast's aligned SELECT GAME MODE (1750) is below 25 dB;
 #   (d) with --todas, the other PSP tests still pass (the renderer only reads guest state).
 #   scripts/test-psp-titulo.sh <EBOOT.PBP> <dir-juego-extraido> [--cuadro N] [--reusar] [--todas]
 # PPSSPP runs one at a time: (a) and (b) are sequential, (c) reuses (a)'s PSP capture.
-# Env: PROBAR_DISCO as in scripts/probar-ikaruga-ppsspp.sh; for (d), what each test needs
+# Env: PROBAR_DISCO as in scripts/probar-ikaruga-ppsspp.sh, FLYCAST_BIOS; for (d), what each test needs
 # (DREAM_RECOMP for test-psp-igual-pc.sh).
 set -euo pipefail
 
@@ -33,15 +33,21 @@ mkdir -p "$EV" "$C"
 val() { sed -n "s/^  $2 *psnr *\([0-9.inf]*\) dB  ssim \([0-9.]*\)\$/\1 \2/p" "$1/resultado.txt" 2>/dev/null | head -1; }
 
 set +e
-"$CMP" "${args[@]}" --cuadro "$cuadro" --ventana "$VENTANA_TITULO" --salida "$A" "${reusar[@]}" \
+"$CMP" "${args[@]}" --cuadro "$cuadro" --alineado --desfase-var "DESFASE_TITULO_$cuadro" --salida "$A" "${reusar[@]}" \
   --exigir 'todo:psnr>=25' --exigir 'todo:ssim>=0.85' > "$EV/test-titulo-a.out" 2>&1
 rc_a=$?
-"$CMP" "${args[@]}" --cuadro "$cuadro" --ventana "$VENTANA_TITULO" --sin-texturas --salida "$B" "${reusar[@]}" \
-  --sin-borde --exigir 'todo:psnr<25' > "$EV/test-titulo-b.out" 2>&1
+"$CMP" "${args[@]}" --cuadro "$cuadro" --alineado --desfase-var "DESFASE_TITULO_$cuadro" --sin-texturas --salida "$B" "${reusar[@]}" \
+  --exigir 'todo:psnr<25' > "$EV/test-titulo-b.out" 2>&1
 rc_b=$?
-"$FLY" --captura "$A/captura-$cuadro.raw" --ventana "$VENTANA_SELECT" --sin-borde --salida "$C" \
-  --exigir 'todo:psnr<25' > "$EV/test-titulo-c.out" 2>&1
-rc_c=$?
+sel=()
+while IFS= read -r f; do sel+=(--imagen "$f"); done < <("$REPO/scripts/flycast-alineado.sh" "$CUADRO_SELECT")
+if [[ ${#sel[@]} -gt 0 ]]; then
+  "$FLY" --captura "$A/captura-$cuadro.raw" "${sel[@]}" --salida "$C" \
+    --exigir 'todo:psnr<25' > "$EV/test-titulo-c.out" 2>&1
+  rc_c=$?
+else
+  rc_c=2
+fi
 set -e
 
 read -r pa sa <<<"$(val "$A" todo)"
@@ -59,9 +65,9 @@ else
   echo "(b) FAIL (exit $rc_b): without textures psnr ${pb:-none} dB (see $B/resultado.txt)"; fail=1
 fi
 if [[ $rc_c -eq 0 ]]; then
-  echo "(c) ok: against the SELECT GAME MODE window psnr $pc dB < 25"
+  echo "(c) ok: against the aligned SELECT GAME MODE psnr $pc dB < 25"
 else
-  echo "(c) FAIL (exit $rc_c): against the SELECT GAME MODE window psnr ${pc:-none} dB (see $C/resultado.txt)"; fail=1
+  echo "(c) FAIL (exit $rc_c): against the aligned SELECT GAME MODE psnr ${pc:-none} dB (see $C/resultado.txt)"; fail=1
 fi
 
 if [[ $todas -eq 1 ]]; then

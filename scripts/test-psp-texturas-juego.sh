@@ -3,15 +3,15 @@
 # (default 2350) with the presses of scripts/test-psp-geometria.sh:
 #   (a) the PSP's texture cache refuses no request in the captured render: the log line
 #       "textures: textured ..." has rejected_this_render 0;
-#   (b) PSNR against the Flycast window of chapter 1 (scripts/escenas-flycast.sh, docs/referencia-flycast.md)
-#       is >= 20 dB at frame N;
+#   (b) PSNR against Flycast's image aligned with frame N (scripts/flycast-alineado.sh,
+#       docs/referencia-flycast.md) is >= 20 dB;
 #   (c) negative: with the old cache cap (ikaruga.cfg texturas_kb=2048, --presupuesto-viejo KB to
 #       change it) the same render does refuse requests, so (a) can fail.
 #   scripts/test-psp-texturas-juego.sh <EBOOT.PBP> <dir-juego-extraido>
 #                                      [--cuadro N] [--presupuesto-viejo KB] [--reusar] [--sin-contraprueba]
 # Runs scripts/comparar-titulo.sh twice (one PPSSPP at a time).
 # Exit 0 when all checks pass. Env: PROBAR_DISCO (real disc HD area) as in
-# scripts/probar-ikaruga-ppsspp.sh.
+# scripts/probar-ikaruga-ppsspp.sh, FLYCAST_BIOS.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +44,7 @@ fallos=0
 # dibujar_desde=0: (a) counts over_budget over the whole run, so the cache must see every render
 # (comparar-titulo.sh would otherwise skip the video until 10 frames before the capture).
 set +e
-"$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES_CAP1" --ventana "$VENTANA_CAP1" \
+"$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES_CAP1" --alineado \
   --salida "$A" --exigir 'todo:psnr>=20' --cfg dibujar_desde=0 "${reusar[@]}" > "$EV/test-texturas-juego-a.out" 2>&1
 set -e
 ra="$(rechazos "$A")" pa="$(psnr "$A")"
@@ -64,7 +64,7 @@ fi
 if [[ $contra -eq 1 ]]; then
   mkdir -p "$C"
   set +e
-  "$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES_CAP1" --ventana "$VENTANA_CAP1" --salida "$C" \
+  "$CMP" "${args[@]}" --cuadro "$cuadro" --pulsar "$PRESSES_CAP1" --alineado --salida "$C" \
     --cfg dibujar_desde=0 --cfg "texturas_kb=$viejo" "${reusar[@]}" > "$EV/test-texturas-juego-c.out" 2>&1
   set -e
   rc="$(rechazos "$C")" pc="$(psnr "$C")"
