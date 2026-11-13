@@ -1,7 +1,8 @@
 # Referencia: el EBOOT (PPSSPP) contra Flycast
 
 La referencia de imagen es Flycast con el mismo disco. Las pruebas de imagen (título, video,
-geometría, texturas del juego) comparan la captura de la PSP contra una serie grabada de Flycast;
+texturas del juego) comparan la captura de la PSP contra la imagen de Flycast alineada con el mismo
+cuadro (`scripts/flycast-alineado.sh`); la de geometría, contra la serie grabada por reloj;
 ninguna lanza el PC recompilado (`ikaruga_boot` solo queda en `test-psp-igual-pc*.sh`, que compara
 `write_hash` y no imágenes).
 
@@ -214,23 +215,21 @@ la PSP también es una serie (`PROBAR_GRABAR=DIR` en `probar-ikaruga-ppsspp.sh`)
 
 ## Umbrales y lo medido (build `float`)
 
-Umbrales fijados antes de medir.
+Umbrales fijados antes de medir. Título, video y texturas comparan contra Flycast alineado
+(`comparar-titulo.sh --alineado`, la de mayor SSIM entre N+DESFASE−2 … N+DESFASE+2). Medido en develop
+`d7dc10e`:
 
-| prueba | escena (ventana → imagen) | umbral | medido | contraprueba |
+| prueba | escena (PSP ↔ Flycast) | umbral | medido | contraprueba |
 |---|---|---|---|---|
-| título (a) | 1243 (170-205 → f178) | todo ≥ 25 dB y SSIM ≥ 0,85 | 28,31 dB / 0,962 | `texturas=0`: 9,47 dB (< 25); contra SELECT GAME MODE: 9,94 dB (< 25) |
-| video (b) | 1750 (250-312 → f292) | todo ≥ 20 dB y SSIM ≥ 0,7; botones ≥ 20 dB | 28,92 dB / 0,956; botones 27,96 dB | `niebla=0`: botones 15,81 dB (< 20) |
-| video (a) | 2350 (380-420 → f392) | SSIM ≥ 0,7 en izquierda y derecha | 0,934 / 0,995 | `recorte=0`: 0,099 / 0,079 |
-| geometría | 2350 (380-420 → f392) | IoU ≥ 0,6 | 0,9798 | `dibujar=0`: 0,0000 |
-| texturas del juego (b) | 2350 (380-420 → f392) | todo ≥ 20 dB | 21,80 dB | (c) `texturas_kb=2048`: rechaza 10 907 pedidos |
+| título (a) | 1243 ↔ 1249 (`start@700`) | todo ≥ 25 dB y SSIM ≥ 0,85 | 29,51 dB / 0,961 | `texturas=0`: 9,47 dB; contra SELECT GAME MODE alineado: 9,24 dB |
+| video (b) | 1750 ↔ 1730 | todo ≥ 20 dB y SSIM ≥ 0,7; botones ≥ 20 dB | 31,34 dB / 0,930; botones 28,35 dB | `niebla=0`: botones 15,86 dB |
+| video (a) | 2350 ↔ 2333 | SSIM ≥ 0,7 en izquierda y derecha | 0,984 / 0,998 | `recorte=0`: 0,116 / 0,085 |
+| texturas del juego (b) | 2350 ↔ 2333 | todo ≥ 20 dB | 27,41 dB | (c) `texturas_kb=2048`: el contador sube (10 907 rechazos), la captura sale idéntica byte a byte |
+| geometría | 2350, serie por reloj (380-420) | IoU ≥ 0,6 | 0,9798 | `dibujar=0`: 0,0000 |
 
-**Por qué el cuadro 2350 y no el 2600.** Flycast va por reloj de pared y la PSP por cuadros: una
-misma pulsación cae en instantes distintos del capítulo 1 y la escena que la PSP muestra en el 2600
-(estructuras en diagonal) no está en la serie en ese instante. Barrido de la PSP contra la ventana
-380-450 (PSNR / SSIM de pantalla completa): 2300 → 21,50 / 0,765; 2350 → 21,80 / 0,798; 2400 →
-19,97 / 0,704; 2450 → 13,60 / 0,553; 2600 → 7,01 / 0,554 (mejor par de toda la serie). Los
-umbrales no se tocaron; se eligió el punto del capítulo 1 que la serie contiene. El 2400 queda a
-0,03 dB del umbral de 20 dB: la prueba de texturas del juego es sensible al cuadro elegido.
+La (c) de texturas no puede fallar por la imagen: los rechazos caen en otros cuadros, no en el
+capturado. La IoU de geometría pasa casi por construcción (cualquier escena con geometría en el mismo
+lugar).
 
 Las columnas laterales de la PSP son negras con el HUD, como en Flycast, en 2200, 2400 y 2600
 (SSIM izquierda 0,93, derecha 0,995 en los tres). A ojo (capturas de 2200-2600) «CHAIN

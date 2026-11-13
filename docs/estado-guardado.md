@@ -18,10 +18,10 @@ Con PPSSPP: `PROBAR_SACAR="estado-600.bin"` trae el volcado; `PROBAR_METER="ruta
 
 ```sh
 P="start@700,start@1000,start@1200,a@1400,start@1600,a@1800,start@2000,a@2200"
-printf 'rtc_semilla = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\nguardar_estado_en=2590\n' "$P" >a.cfg
+printf 'rtc_semilla = 1\npulsar=%s\nhash_cada=1\ncapturar_en=2600\nmax_cuadros=2601\nguardar_estado_en=2590\n' "$P" >a.cfg
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=a.cfg PROBAR_SACAR=estado-2590.bin \
   scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $J 1500 a/psp.log
-printf 'rtc_semilla = 1\npulsar=%s\nhash_every=1\ncapturar_en=2600\nmax_cuadros=2601\ncargar_estado=estado-2590.bin\n' "$P" >b.cfg
+printf 'rtc_semilla = 1\npulsar=%s\nhash_cada=1\ncapturar_en=2600\nmax_cuadros=2601\ncargar_estado=estado-2590.bin\n' "$P" >b.cfg
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=b.cfg PROBAR_METER=a/estado-2590.bin \
   scripts/probar-ikaruga-ppsspp.sh build/psp/ikaruga/EBOOT.PBP $J 600 b/psp.log
 ```

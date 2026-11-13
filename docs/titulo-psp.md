@@ -37,8 +37,9 @@ Cómo llegan las texturas del PVR2 al GE y cómo se prueba la pantalla de títul
   - Niebla y recorte de usuario: `docs/video-psp.md`. No se dibujan el color offset (especular) ni el
     color clamp.
 - `ikaruga.cfg`: `texturas=0` apaga las texturas; `texturas_kb=N` fija el tope de la caché.
-- `scripts/comparar-titulo.sh` captura la PSP en el cuadro N y la compara con la serie de Flycast
-  (`scripts/comparar-flycast.sh --captura`; `docs/referencia-flycast.md`).
+- `scripts/comparar-titulo.sh` captura la PSP en el cuadro N y la compara con Flycast
+  (`scripts/comparar-flycast.sh --captura`; con `--alineado`, contra las imágenes de Flycast alineadas
+  con el cuadro N de `scripts/flycast-alineado.sh`; `docs/referencia-flycast.md`).
 
 ## El cuadro del título
 
@@ -52,8 +53,9 @@ Flycast, Return a los 700/60 s de abrir la ventana).
 | **1243** | primer cuadro idéntico al título quieto |
 | 1260–1280, 1350, 1400 | parpadeo de «PRESS START BUTTON» (caja 175,334–462,345) |
 
-La prueba mide el cuadro 1243 contra la ventana 170-205 de la serie de Flycast
-(`scripts/escenas-flycast.sh`).
+La prueba mide el cuadro 1243 contra Flycast alineado: con `start@700` solo, el fundido de Flycast
+termina 6 cuadros después (`DESFASE_TITULO_1243=6` en `scripts/escenas-flycast.sh`; medido contra
+Flycast 1225–1255: 1249 da 29,51 dB y 1250–1255, ya quieto, 29,23).
 
 ## Prueba
 
@@ -65,9 +67,9 @@ Corridas de PPSSPP sin limitador, una a la vez. Umbrales fijados antes de medir:
 
 | prueba | qué compara | umbral |
 |---|---|---|
-| (a) | PSP 1243 con texturas contra la ventana del título | PSNR ≥ 25 dB y SSIM ≥ 0,85 |
-| (b) | igual con `texturas=0` | PSNR < 25 dB (debe fallar) |
-| (c) | la captura de (a) contra la ventana de SELECT GAME MODE | PSNR < 25 dB (debe discriminar) |
+| (a) | PSP 1243 con texturas contra Flycast alineado | PSNR ≥ 25 dB y SSIM ≥ 0,85 (medido 29,51 / 0,961) |
+| (b) | igual con `texturas=0` | PSNR < 25 dB (debe fallar; medido 9,47) |
+| (c) | la captura de (a) contra SELECT GAME MODE alineado (1750) | PSNR < 25 dB (debe discriminar; medido 9,24) |
 | (d) con `--todas` | las demás pruebas de la PSP (`arranque`, `rtc`, `carpeta`, `vmu`, `salida-suspension`, `igual-pc`, `geometria`, `redondeo`), cada una por separado | cada una pasa |
 
 (d) pide lo que cada prueba pida; `test-psp-igual-pc.sh` necesita `DREAM_RECOMP`.

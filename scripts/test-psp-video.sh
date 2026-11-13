@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Acceptance tests of rows 6b and 6c (docs/video-psp.md), against the Flycast reference series
-# (docs/referencia-flycast.md), with the presses of scripts/test-psp-geometria.sh, through
-# scripts/comparar-titulo.sh:
+# Acceptance tests of rows 6b and 6c (docs/video-psp.md), against Flycast's image aligned with each
+# guest frame (scripts/flycast-alineado.sh, docs/referencia-flycast.md), with the chapter-1 presses,
+# through scripts/comparar-titulo.sh --alineado:
 #   (a) frame 2350 (start of chapter 1): the side columns (izquierda x < 100, derecha x >= 380 at 480x272,
 #       the HUD) have SSIM >= 0.7 each against Flycast; with the user tile clip off (ikaruga.cfg
 #       recorte=0) at least one is < 0.7;
@@ -10,7 +10,7 @@
 #   (c) the title (frame 1243, start@700) is >= 25 dB and SSIM >= 0.85 (the title test's (a)).
 #   scripts/test-psp-video.sh <EBOOT.PBP> <dir-juego-extraido> [--reusar] [--solo a|b|c]
 # Five PPSSPP runs, one at a time, unthrottled (about 20-40 s each).
-# Env: PROBAR_DISCO (real disc HD area) as in scripts/probar-ikaruga-ppsspp.sh.
+# Env: PROBAR_DISCO (real disc HD area) as in scripts/probar-ikaruga-ppsspp.sh, FLYCAST_BIOS.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,16 +30,15 @@ done
 EV="$REPO/build/psp/evidencia"
 mkdir -p "$EV"
 
-# run DIR N WINDOW EXIGIR [CFG...]: one capture at frame N compared with the window; returns
-# comparar's code. A run with CFG is a negative control: no scene-edge check.
+# run DIR N EXIGIR [CFG...]: one capture at frame N compared with Flycast's aligned image; returns
+# comparar's code.
 run() {
-  local dir="$1" n="$2" win="$3" exigir="$4" cfg=() ex=() c r nb=()
-  shift 4
-  [[ $# -gt 0 ]] && nb=(--sin-borde)
+  local dir="$1" n="$2" exigir="$3" cfg=() ex=() c r
+  shift 3
   for c in "$@"; do cfg+=(--cfg "$c"); done
   for r in $exigir; do ex+=(--exigir "$r"); done
-  "$CMP" "${args[@]}" --cuadro "$n" --pulsar "$PRESSES_CAP1" --ventana "$win" --salida "$dir" \
-    "${reusar[@]}" --region "$BOTONES" "${nb[@]}" "${ex[@]}" "${cfg[@]}" > "$dir.out" 2>&1
+  "$CMP" "${args[@]}" --cuadro "$n" --pulsar "$PRESSES_CAP1" --alineado --salida "$dir" \
+    "${reusar[@]}" --region "$BOTONES" "${ex[@]}" "${cfg[@]}" > "$dir.out" 2>&1
 }
 # val DIR REGION METRIC: the number resultado.txt reports.
 val() {
@@ -51,8 +50,8 @@ fail=0
 if [[ -z "$solo" || "$solo" == a ]]; then
   A="$EV/video-$CUADRO_CAP1" A0="$EV/video-$CUADRO_CAP1-recorte-0"
   set +e
-  run "$A" "$CUADRO_CAP1" "$VENTANA_CAP1" 'izquierda:ssim>=0.7 derecha:ssim>=0.7'; rc=$?
-  run "$A0" "$CUADRO_CAP1" "$VENTANA_CAP1" 'izquierda:ssim<0.7|derecha:ssim<0.7' recorte=0; rc0=$?
+  run "$A" "$CUADRO_CAP1" 'izquierda:ssim>=0.7 derecha:ssim>=0.7'; rc=$?
+  run "$A0" "$CUADRO_CAP1" 'izquierda:ssim<0.7|derecha:ssim<0.7' recorte=0; rc0=$?
   set -e
   if [[ $rc -eq 0 && $rc0 -eq 0 ]]; then
     echo "(a) ok: side columns ssim $(val "$A" izquierda ssim)/$(val "$A" derecha ssim) >= 0.7; with recorte=0 $(val "$A0" izquierda ssim)/$(val "$A0" derecha ssim) (one < 0.7)"
@@ -63,8 +62,8 @@ fi
 if [[ -z "$solo" || "$solo" == b ]]; then
   B="$EV/video-$CUADRO_SELECT" B0="$EV/video-$CUADRO_SELECT-niebla-0"
   set +e
-  run "$B" "$CUADRO_SELECT" "$VENTANA_SELECT" 'todo:psnr>=20 todo:ssim>=0.7 botones:psnr>=20'; rc=$?
-  run "$B0" "$CUADRO_SELECT" "$VENTANA_SELECT" 'botones:psnr<20' niebla=0; rc0=$?
+  run "$B" "$CUADRO_SELECT" 'todo:psnr>=20 todo:ssim>=0.7 botones:psnr>=20'; rc=$?
+  run "$B0" "$CUADRO_SELECT" 'botones:psnr<20' niebla=0; rc0=$?
   set -e
   if [[ $rc -eq 0 && $rc0 -eq 0 ]]; then
     echo "(b) ok: whole screen $(val "$B" todo psnr) dB / ssim $(val "$B" todo ssim), mode buttons $(val "$B" botones psnr) dB >= 20; with niebla=0 $(val "$B0" botones psnr) dB < 20"
@@ -74,7 +73,7 @@ if [[ -z "$solo" || "$solo" == b ]]; then
 fi
 if [[ -z "$solo" || "$solo" == c ]]; then
   C="$EV/video-titulo-1243"
-  if "$CMP" "${args[@]}" --ventana "$VENTANA_TITULO" --salida "$C" "${reusar[@]}" \
+  if "$CMP" "${args[@]}" --alineado --desfase-var DESFASE_TITULO_1243 --salida "$C" "${reusar[@]}" \
        --exigir 'todo:psnr>=25' --exigir 'todo:ssim>=0.85' > "$C.out" 2>&1; then
     echo "(c) ok: title $(val "$C" todo psnr) dB / ssim $(val "$C" todo ssim)"
   else

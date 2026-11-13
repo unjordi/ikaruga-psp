@@ -59,12 +59,13 @@ scripts/test-psp-texturas-juego.sh $E $J         # docs/velocidad-psp.md, caché
 scripts/test-psp-video.sh $E $J                  # docs/video-psp.md
 scripts/bateria.sh $E $J [--double EBOOT-double.PBP] [--sin-velocidad]   # todas, una línea por prueba
 # una captura a mano, sin limitador y sin dibujar hasta 2590:
-mkdir -p build/c; printf 'capturar_en=2600\ndibujar_desde=2590\nrtc_seed=1\n' > build/c/ikaruga.cfg
+mkdir -p build/c; printf 'capturar_en=2600\ndibujar_desde=2590\nrtc_semilla=1\n' > build/c/ikaruga.cfg
 PROBAR_SIN_LIMITE=1 PROBAR_CFG=build/c/ikaruga.cfg scripts/probar-ikaruga-ppsspp.sh $E $J 2400 build/c/psp.log
 ```
 
-Las pruebas de imagen comparan solo contra la serie de Flycast (`docs/referencia-flycast.md`); la
-serie se graba sola la primera vez (≈1 min). `bateria.sh` corre al integrar un cambio; salidas en
+Las pruebas de imagen comparan solo contra Flycast, en la imagen alineada con el cuadro de la PSP
+(`scripts/flycast-alineado.sh`, `docs/referencia-flycast.md`); las imágenes se graban solas la primera
+vez que faltan (necesita `FLYCAST_BIOS`). `bateria.sh` corre al integrar un cambio; salidas en
 `build/psp/evidencia/bateria/`. `test-psp-texturas-juego.sh` comprueba (a) que la caché no rechace
 ningún pedido en el render capturado, (b) PSNR ≥ 20 dB contra Flycast en el cuadro 2350 y (c) que con
 `texturas_kb=2048` sí rechace.
