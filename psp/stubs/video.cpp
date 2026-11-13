@@ -351,15 +351,11 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
     if (!g_ready)
         return stats;
 
-    // Depth: the frame's 1/w range spread over the 16-bit buffer, larger nearer. The HUD and
-    // background planes sit at 1/w >= 1 and the scene at 1e-4..1e-1, so spreading min..max linearly
-    // left the scene in a few dozen steps (paso 45: 1446 overlapping, ordered polygon pairs on the
-    // same step in frame 2000; 24, all coplanar, with this split). When both are present, the
-    // on-screen scene (1/w < 1) gets 1..65000 and the
-    // planes get their own band 65001..65535, which keeps their order among themselves. The 3D
-    // matrix below uses the same zbias/zscale, so the perspective strips stay coherent.
-    // Only polygons whose box touches the 640x480 screen count: off-screen ones (e.g. the fog
-    // quads at 1/w 0.1 around -2,-1) are not drawn and would stretch the range again.
+    // Depth: 1/w over the 16-bit buffer, larger nearer, 0 is the clear value. When the frame has
+    // both the scene (1/w < 1) and the HUD/background planes (1/w >= 1), the scene takes 1..65000
+    // and the planes their own band 65001..65535; otherwise one linear range. The scene range counts
+    // only polygons whose box touches the 640x480 screen. The 3D matrix below uses the same
+    // zbias/zscale. docs/video-psp.md, "Profundidad en 16 bits".
     float zmin = 1e30f, zmax = -1e30f;
     for (const auto& list : frame.lists)
         for (const auto& p : list) {

@@ -4,8 +4,8 @@
 // Build: g++ -std=c++20 -O2 -Ithird_party/dream-recomp/render/include tools/analizar-ta.cpp \
 //          third_party/dream-recomp/render/src/display_list.cpp -o build/host/analizar-ta
 // ANALIZAR_TA_ESCALONES=1: pairs of overlapping, depth-ordered polygons that share a 16-bit
-// depth step (linear over the whole range, as video.cpp before paso 45; the scene without the
-// 1/w >= 1 planes, as video.cpp now; and log2(1/w)). ANALIZAR_TA_ESCALONES_PARES=1 lists the
+// depth step (linear over the whole range; the scene without the 1/w >= 1 planes, as video.cpp;
+// and log2(1/w)). ANALIZAR_TA_ESCALONES_PARES=1 lists the
 // pairs left with the current split.
 // Bit layout: Flycast core/hw/pvr/ta_structs.h (ISP_TSP, TSP, TCW, PCW).
 #include <algorithm>
