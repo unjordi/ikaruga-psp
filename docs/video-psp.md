@@ -74,6 +74,19 @@ Cuadros 2350/2700/3000: el centro sube 3–5 dB (cifras en `docs/plan.md`, paso 
 speed 0,0846 frente a 0,0859, `draw_ms_per_render` 21,4 frente a 18,3, y el bloque libre mayor baja
 de 1088 a 1008 KB (vectores de vértices recortados).
 
+## Profundidad en 16 bits (paso 45)
+
+`video_draw_frame` reparte 1/w en el búfer de 16 bits (mayor = más cerca, 0 es el valor de borrado).
+Los planos de HUD y fondo están en 1/w ≥ 1 y la escena en 10⁻⁴…10⁻¹: con un solo reparto lineal
+`min_z…max_z` la escena quedaba en unas decenas de escalones. Ahora el rango de la escena sale solo de
+los polígonos cuya caja toca la pantalla 640×480 y con 1/w < 1, y va a 1…65000; los vértices con
+1/w ≥ 1 van a una banda aparte 65001…65535 (conservan su orden entre ellos). Si el render no tiene
+las dos clases se usa el reparto lineal de siempre. La matriz de proyección de las tiras en
+perspectiva usa los mismos `zbias`/`zscale` (sus vértices son de la escena), y la pasada de niebla
+copia la `z` del vértice, así que `EQUAL` sigue viendo la misma profundidad.
+`ANALIZAR_TA_ESCALONES=1 tools/analizar-ta` cuenta los pares de polígonos que se tapan con orden claro
+y caen en el mismo escalón (lineal / este reparto / log2).
+
 ## Mipmaps (`mipmaps=0` los quita)
 
 Las texturas con el bit 31 de la TCW (mipmapped) se subían al GE solo con el nivel base: en

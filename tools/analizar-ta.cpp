@@ -3,6 +3,10 @@
 // dream::render::DisplayList, the same decoder the PSP EBOOT uses.
 // Build: g++ -std=c++20 -O2 -Ithird_party/dream-recomp/render/include tools/analizar-ta.cpp \
 //          third_party/dream-recomp/render/src/display_list.cpp -o build/host/analizar-ta
+// ANALIZAR_TA_ESCALONES=1: pairs of overlapping, depth-ordered polygons that share a 16-bit
+// depth step (linear over the whole range; the scene without the 1/w >= 1 planes, as video.cpp;
+// and log2(1/w)). ANALIZAR_TA_ESCALONES_PARES=1 lists the
+// pairs left with the current split.
 // Bit layout: Flycast core/hw/pvr/ta_structs.h (ISP_TSP, TSP, TCW, PCW).
 #include <algorithm>
 #include <cmath>
@@ -65,14 +69,15 @@ int main(int argc, char** argv) {
             }
             if (offset_nonzero) add(L + ".offset_color_nonzero");
             if (std::getenv("ANALIZAR_TA_POLIGONOS")) {  // one line per strip: list, bbox, state
-                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, zlo = 1e30f, zhi = -1e30f;
                 for (u32 i = 0; i < p.count; ++i) {
                     const auto& v = fr.vertices[p.first + i];
                     x0 = std::min(x0, v.x); x1 = std::max(x1, v.x);
                     y0 = std::min(y0, v.y); y1 = std::max(y1, v.y);
+                    zlo = std::min(zlo, v.z); zhi = std::max(zhi, v.z);
                 }
-                std::printf("P %s bbox %.0f,%.0f-%.0f,%.0f area %.0f blend %u/%u fog %u tex %u fmt %u off %d base0 %08x off0 %08x tcw %08x\n",
-                    L.c_str(), x0, y0, x1, y1, (x1 - x0) * (y1 - y0), (tsp >> 29) & 7, (tsp >> 26) & 7,
+                std::printf("P %s zr %g-%g bbox %.0f,%.0f-%.0f,%.0f area %.0f blend %u/%u fog %u tex %u fmt %u off %d base0 %08x off0 %08x tcw %08x\n",
+                    L.c_str(), zlo, zhi, x0, y0, x1, y1, (x1 - x0) * (y1 - y0), (tsp >> 29) & 7, (tsp >> 26) & 7,
                     (tsp >> 22) & 3, (pcw >> 3) & 1, (tcw >> 27) & 7, offset_nonzero ? 1 : 0,
                     fr.vertices[p.first].base, fr.vertices[p.first].offset, tcw);
             }
@@ -125,6 +130,80 @@ int main(int argc, char** argv) {
         }
         std::printf("z.min %g z.max %g ratio %g distinct %zu step16 %g pairs_closer_than_step %u\n",
                     lo, hi, lo > 0 ? hi / lo : 0.0, zs.size(), step, close);
+    }
+    if (std::getenv("ANALIZAR_TA_ESCALONES")) {
+        // Pairs of opaque/punch-through/translucent polygons whose screen boxes overlap, whose
+        // 1/w ranges do not overlap (a clear front/back order) and that land on the same 16-bit
+        // depth step on the PSP (video.cpp: zbias + (z - zmin) * zscale, truncated by the GE).
+        // Also for two alternative spreads: the range without the 1/w >= 1 planes (HUD, background),
+        // and log2(1/w) over the frame's range.
+        struct B { float x0, y0, x1, y1, lo, hi; unsigned l; };
+        std::vector<B> bs;
+        for (unsigned l = 0; l < 5; ++l)
+            if (l == 0 || l == 2 || l == 4)
+                for (const auto& p : fr.lists[l]) {
+                    B b{1e9f, 1e9f, -1e9f, -1e9f, 1e30f, -1e30f, l};
+                    for (u32 i = 0; i < p.count; ++i) {
+                        const auto& v = fr.vertices[p.first + i];
+                        b.x0 = std::min(b.x0, v.x); b.x1 = std::max(b.x1, v.x);
+                        b.y0 = std::min(b.y0, v.y); b.y1 = std::max(b.y1, v.y);
+                        b.lo = std::min(b.lo, v.z); b.hi = std::max(b.hi, v.z);
+                    }
+                    b.x0 = std::max(b.x0, 0.f); b.y0 = std::max(b.y0, 0.f);
+                    b.x1 = std::min(b.x1, 640.f); b.y1 = std::min(b.y1, 480.f);
+                    if (b.x1 > b.x0 && b.y1 > b.y0) bs.push_back(b);
+                }
+        const double zmin = fr.min_z, zmax = fr.max_z;
+        double smax = zmin;  // scene max: below the 1/w >= 1 planes
+        double vmin = 1e30;  // over polygons that touch the screen (as video.cpp)
+        for (unsigned l = 0; l < 5; ++l)
+            for (const auto& p : fr.lists[l]) {
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (u32 i = 0; i < p.count; ++i) {
+                    const auto& v = fr.vertices[p.first + i];
+                    x0 = std::min(x0, v.x); x1 = std::max(x1, v.x);
+                    y0 = std::min(y0, v.y); y1 = std::max(y1, v.y);
+                }
+                if (x1 <= 0 || y1 <= 0 || x0 >= 640 || y0 >= 480) continue;
+                for (u32 i = 0; i < p.count; ++i) {
+                    const float z = fr.vertices[p.first + i].z;
+                    if (z < 1.0f) smax = std::max(smax, (double)z);
+                    vmin = std::min(vmin, (double)z);
+                }
+            }
+        const double szmin = vmin < 1e30 ? vmin : zmin;
+        const auto lin = [&](double z) { return (long)std::floor(1 + (z - zmin) * 65534.0 / (zmax - zmin)); };
+        const double hs = zmax > 1.0 ? 534.0 / (zmax - 1.0) : 0.0;  // video.cpp's band for 1/w >= 1
+        const auto sin = [&](double z) { return z >= 1.0 ? (long)std::floor(65001 + (z - 1.0) * hs) : (long)std::floor(1 + std::max(0.0, z - szmin) * 64999.0 / (smax - szmin)); };
+        const double l0 = std::log2(zmin), l1 = std::log2(zmax);
+        const auto lg = [&](double z) { return (long)std::floor(1 + (std::log2(z) - l0) * 65534.0 / (l1 - l0)); };
+        const char* names[3] = {"lineal", "sin_hud_fondo", "log2"};
+        for (int m = 0; m < 3; ++m) {
+            unsigned pairs = 0, same = 0, same_op = 0;
+            for (std::size_t i = 0; i < bs.size(); ++i)
+                for (std::size_t j = i + 1; j < bs.size(); ++j) {
+                    const B &a = bs[i], &b = bs[j];
+                    if (a.l == 2 && b.l == 2) continue;  // translucent vs translucent: no depth write
+                    if (a.x1 <= b.x0 || b.x1 <= a.x0 || a.y1 <= b.y0 || b.y1 <= a.y0) continue;
+                    const B& f = a.lo > b.hi ? a : b;   // front
+                    const B& k = a.lo > b.hi ? b : a;   // back
+                    if (!(f.lo > k.hi)) continue;       // ranges overlap: intersecting, not ordered
+                    ++pairs;
+                    const long qf = m == 0 ? lin(f.lo) : m == 1 ? sin(f.lo) : lg(f.lo);
+                    const long qk = m == 0 ? lin(k.hi) : m == 1 ? sin(k.hi) : lg(k.hi);
+                    if (qf <= qk) {
+                        ++same;
+                        if (a.l != 2 && b.l != 2) ++same_op;
+                        if (m == 1 && std::getenv("ANALIZAR_TA_ESCALONES_PARES"))
+                            std::printf("par l%u/l%u gap %g (%.3g escalones) front %.0f,%.0f-%.0f,%.0f back %.0f,%.0f-%.0f,%.0f z %g/%g\n",
+                                f.l, k.l, f.lo - k.hi, (f.lo - k.hi) * 64999.0 / (smax - szmin),
+                                f.x0, f.y0, f.x1, f.y1, k.x0, k.y0, k.x1, k.y1, f.lo, k.hi);
+                    }
+                }
+            std::printf("escalones.%s pares_ordenados_que_se_tapan %u mismo_escalon %u (opacos %u)\n",
+                        names[m], pairs, same, same_op);
+        }
+        std::printf("escalones.escena_max %g\n", smax);
     }
     std::printf("frame.min_z %g max_z %g sprites %u strips %u modifiers %zu unknown %u dropped %u\n",
                 fr.min_z, fr.max_z, fr.sprites, fr.strips, fr.modifiers.size(),

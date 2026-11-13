@@ -351,11 +351,36 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
     if (!g_ready)
         return stats;
 
-    // Depth: the frame's 1/w range spread over the 16-bit buffer, larger nearer.
-    const float zmin = frame.min_z, zmax = frame.max_z;
+    // Depth: 1/w over the 16-bit buffer, larger nearer, 0 is the clear value. When the frame has
+    // both the scene (1/w < 1) and the HUD/background planes (1/w >= 1), the scene takes 1..65000
+    // and the planes their own band 65001..65535; otherwise one linear range. The scene range counts
+    // only polygons whose box touches the 640x480 screen. The 3D matrix below uses the same
+    // zbias/zscale. docs/video-psp.md, "Profundidad en 16 bits".
+    float zmin = 1e30f, zmax = -1e30f;
+    for (const auto& list : frame.lists)
+        for (const auto& p : list) {
+            float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+            for (std::uint32_t i = 0; i < p.count; ++i) {
+                const auto& v = frame.vertices[p.first + i];
+                x0 = std::min(x0, v.x); x1 = std::max(x1, v.x);
+                y0 = std::min(y0, v.y); y1 = std::max(y1, v.y);
+            }
+            if (x1 <= 0.0f || y1 <= 0.0f || x0 >= 640.0f || y0 >= 480.0f)
+                continue;
+            for (std::uint32_t i = 0; i < p.count; ++i) {
+                const float z = frame.vertices[p.first + i].z;
+                zmin = std::min(zmin, z);
+                if (z < 1.0f) zmax = std::max(zmax, z);
+            }
+        }
+    if (!(zmin < 1e30f)) zmin = frame.min_z;
+    if (zmax < zmin) zmax = zmin;
+    const bool split = zmax > zmin && frame.max_z >= 1.0f;
+    if (!split) { zmin = frame.min_z; zmax = frame.max_z; }
+    const float hud_scale = split && frame.max_z > 1.0f ? 534.0f / (frame.max_z - 1.0f) : 0.0f;
     // 0 is the cleared value, so drawn depth starts at 1 and a GREATER test against an empty
     // pixel passes.
-    const float zscale = zmax > zmin ? 65534.0f / (zmax - zmin) : 0.0f;
+    const float zscale = zmax > zmin ? (split ? 64999.0f : 65534.0f) / (zmax - zmin) : 0.0f;
     const float zbias = zmax > zmin ? 1.0f : 32768.0f;
 
     struct Item {
@@ -527,7 +552,9 @@ VideoStats video_draw_frame(const dream::render::Frame& frame, float alpha_ref,
                 o.u = right ? static_cast<float>(rect.w) : 0.0f;
                 o.v = bottom ? static_cast<float>(rect.h) : 0.0f;
             }
-            o.z = std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, 65535.0f);
+            o.z = split && v.z >= 1.0f
+                ? std::clamp(65001.0f + (v.z - 1.0f) * hud_scale, 65001.0f, 65535.0f)
+                : std::clamp(zbias + (v.z - zmin) * zscale, 1.0f, split ? 65000.0f : 65535.0f);
             if (item.fog) {
                 const float f = std::clamp(fog_control == 1
                     ? static_cast<float>(v.offset >> 24) / 255.0f
